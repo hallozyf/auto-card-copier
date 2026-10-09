@@ -40,23 +40,25 @@ namespace AutoCardCopier.Core.Infrastructure
         /// </summary>
         public static void WriteAllTextAtomic(string path, string content)
         {
-            string directory = Path.GetDirectoryName(path);
+            // 统一加长路径前缀，保证超长项目目录也能正确写入
+            string extendedPath = PathUtil.Extend(path);
+            string directory = Path.GetDirectoryName(extendedPath);
             if (!string.IsNullOrEmpty(directory)) { Directory.CreateDirectory(directory); }
 
-            string temp = path + ".tmp";
+            string temp = extendedPath + ".tmp";
             File.WriteAllText(temp, content, new UTF8Encoding(false));
-            if (File.Exists(path))
+            if (File.Exists(extendedPath))
             {
                 // File.Replace 需要目标存在且支持备份，这里用删除加移动保证兼容性
-                File.Delete(path);
+                File.Delete(extendedPath);
             }
-            File.Move(temp, path);
+            File.Move(temp, extendedPath);
         }
 
         /// <summary>读取文本文件（UTF-8，允许 BOM）。</summary>
         public static string ReadAllText(string path)
         {
-            return File.ReadAllText(path, Encoding.UTF8);
+            return File.ReadAllText(PathUtil.Extend(path), Encoding.UTF8);
         }
     }
 }

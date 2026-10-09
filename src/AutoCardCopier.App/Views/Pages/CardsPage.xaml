@@ -8,45 +8,50 @@
       <RowDefinition Height="*" />
     </Grid.RowDefinitions>
 
-    <!-- 标题 -->
     <StackPanel Grid.Row="0" Margin="0,0,0,12">
       <TextBlock Text="{Binding Title}" Style="{StaticResource PageTitleText}" />
       <TextBlock Text="{Binding Description}" Style="{StaticResource SecondaryText}" Margin="0,6,0,0" />
     </StackPanel>
 
-    <!-- 工具条 -->
+    <!-- 状态条：状态 + 进度 + 主要动作 -->
     <Border Grid.Row="1" Style="{StaticResource CardBorder}" Padding="14">
       <Grid>
         <Grid.ColumnDefinitions>
           <ColumnDefinition Width="*" />
           <ColumnDefinition Width="Auto" />
         </Grid.ColumnDefinitions>
-        <StackPanel Grid.Column="0" VerticalAlignment="Center">
+
+        <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,12,0">
           <TextBlock Text="{Binding StatusText}" Style="{StaticResource BodyText}" />
           <TextBlock Text="{Binding ProgressText}" Style="{StaticResource SecondaryText}" Margin="0,2,0,0" />
-          <ProgressBar Style="{StaticResource AppProgressBar}" Margin="0,8,12,0" Maximum="100"
-                       IsIndeterminate="True" Visibility="{Binding IsBusy, Converter={StaticResource BoolToVisibility}}" />
+          <!-- 扫描等不确定进度用滚动条；拷贝过程由下方的拷贝卡片显示精确进度 -->
+          <ProgressBar Style="{StaticResource AppProgressBar}" Margin="0,8,0,0" Maximum="100"
+                       IsIndeterminate="True"
+                       Visibility="{Binding IsBusy, Converter={StaticResource BoolToVisibility}}" />
         </StackPanel>
+
         <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
           <Button Content="刷新" Style="{StaticResource SecondaryButton}" Command="{Binding RefreshCommand}" Margin="0,0,8,0" />
-          <Button Content="扫描素材" Style="{StaticResource PrimaryButton}" Command="{Binding ScanCommand}" />
+          <Button Content="扫描素材" Style="{StaticResource SecondaryButton}" Command="{Binding ScanCommand}" Margin="0,0,8,0" />
+          <Button Content="开始拷贝" Style="{StaticResource PrimaryButton}" Command="{Binding StartCopyCommand}" Margin="0,0,8,0" />
+          <Button Content="{Binding PauseButtonText}" Style="{StaticResource SecondaryButton}" Command="{Binding PauseResumeCommand}" Margin="0,0,8,0" />
+          <Button Content="取消" Style="{StaticResource SecondaryButton}" Command="{Binding CancelCopyCommand}" />
         </StackPanel>
       </Grid>
     </Border>
 
-    <!-- 主体：卡片列表 + 详情 -->
     <Grid Grid.Row="2">
       <Grid.ColumnDefinitions>
-        <ColumnDefinition Width="290" />
+        <ColumnDefinition Width="280" />
         <ColumnDefinition Width="*" />
       </Grid.ColumnDefinitions>
 
+      <!-- 卡片列表 -->
       <Border Grid.Column="0" Style="{StaticResource CardBorder}" Padding="8" Margin="0,0,12,0">
         <DockPanel>
           <TextBlock DockPanel.Dock="Top" Text="检测到的存储卡" Style="{StaticResource SectionTitleText}" Margin="8,6,0,6" />
           <ListView ItemsSource="{Binding Cards}" SelectedItem="{Binding SelectedCard, Mode=TwoWay}"
-                    Style="{StaticResource AppListView}" ItemContainerStyle="{StaticResource AppListViewItem}"
-                    ScrollViewer.VerticalScrollBarVisibility="Auto">
+                    Style="{StaticResource AppListView}" ItemContainerStyle="{StaticResource AppListViewItem}">
             <ListView.ItemTemplate>
               <DataTemplate>
                 <StackPanel>
@@ -66,7 +71,49 @@
 
       <ScrollViewer Grid.Column="1" VerticalScrollBarVisibility="Auto">
         <StackPanel>
-          <!-- 扫描结果 -->
+          <!-- 拍摄信息 -->
+          <Border Style="{StaticResource CardBorder}">
+            <StackPanel>
+              <TextBlock Text="拍摄信息" Style="{StaticResource SectionTitleText}" />
+              <Grid>
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="90" />
+                  <ColumnDefinition Width="*" />
+                  <ColumnDefinition Width="90" />
+                  <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                  <RowDefinition Height="Auto" />
+                  <RowDefinition Height="Auto" />
+                  <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <TextBlock Grid.Row="0" Grid.Column="0" Text="拍摄地点" Style="{StaticResource SecondaryText}" VerticalAlignment="Center" Margin="0,6" />
+                <ComboBox Grid.Row="0" Grid.Column="1" Style="{StaticResource AppComboBox}" Margin="0,4,12,4"
+                          IsEditable="True" ItemsSource="{Binding Locations}"
+                          Text="{Binding Location, UpdateSourceTrigger=PropertyChanged}" />
+
+                <TextBlock Grid.Row="0" Grid.Column="2" Text="拍摄类型" Style="{StaticResource SecondaryText}" VerticalAlignment="Center" Margin="0,6" />
+                <ComboBox Grid.Row="0" Grid.Column="3" Style="{StaticResource AppComboBox}" Margin="0,4,0,4"
+                          IsEditable="True" ItemsSource="{Binding ShootTypes}"
+                          Text="{Binding ShootType, UpdateSourceTrigger=PropertyChanged}" />
+
+                <TextBlock Grid.Row="1" Grid.Column="0" Text="摄影师" Style="{StaticResource SecondaryText}" VerticalAlignment="Center" Margin="0,6" />
+                <TextBox Grid.Row="1" Grid.Column="1" Style="{StaticResource AppTextBox}" Margin="0,4,12,4"
+                         Text="{Binding Photographer, UpdateSourceTrigger=PropertyChanged}" />
+
+                <TextBlock Grid.Row="1" Grid.Column="2" Text="备注" Style="{StaticResource SecondaryText}" VerticalAlignment="Center" Margin="0,6" />
+                <TextBox Grid.Row="1" Grid.Column="3" Style="{StaticResource AppTextBox}" Margin="0,4,0,4"
+                         Text="{Binding Note, UpdateSourceTrigger=PropertyChanged}" />
+
+                <TextBlock Grid.Row="2" Grid.Column="0" Text="目标目录" Style="{StaticResource SecondaryText}" VerticalAlignment="Center" Margin="0,6" />
+                <TextBlock Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="3" Text="{Binding TargetPreviewText}"
+                           Style="{StaticResource BodyText}" VerticalAlignment="Center" Margin="0,6" />
+              </Grid>
+            </StackPanel>
+          </Border>
+
+          <!-- 素材统计 -->
           <Border Style="{StaticResource CardBorder}">
             <StackPanel>
               <TextBlock Text="素材统计" Style="{StaticResource SectionTitleText}" />
@@ -87,43 +134,47 @@
 
                 <TextBlock Grid.Row="0" Grid.Column="0" Text="内容类型" Style="{StaticResource SecondaryText}" Margin="0,3" />
                 <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding ContentSummaryText}" Style="{StaticResource BodyText}" Margin="0,3" />
-
                 <TextBlock Grid.Row="1" Grid.Column="0" Text="照片" Style="{StaticResource SecondaryText}" Margin="0,3" />
                 <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding PhotoText}" Style="{StaticResource BodyText}" Margin="0,3" />
-
                 <TextBlock Grid.Row="2" Grid.Column="0" Text="视频" Style="{StaticResource SecondaryText}" Margin="0,3" />
                 <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding VideoText}" Style="{StaticResource BodyText}" Margin="0,3" />
-
                 <TextBlock Grid.Row="3" Grid.Column="0" Text="其他文件" Style="{StaticResource SecondaryText}" Margin="0,3" />
                 <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding OtherText}" Style="{StaticResource BodyText}" Margin="0,3" />
-
                 <TextBlock Grid.Row="4" Grid.Column="0" Text="合计" Style="{StaticResource SecondaryText}" Margin="0,3" />
                 <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding TotalText}" Style="{StaticResource BodyText}" Margin="0,3" FontWeight="SemiBold" />
-
                 <TextBlock Grid.Row="5" Grid.Column="0" Text="拍摄时间" Style="{StaticResource SecondaryText}" Margin="0,3" />
                 <TextBlock Grid.Row="5" Grid.Column="1" Text="{Binding TimeRangeText}" Style="{StaticResource BodyText}" Margin="0,3" />
-
                 <TextBlock Grid.Row="6" Grid.Column="0" Text="相机型号" Style="{StaticResource SecondaryText}" Margin="0,3" />
                 <TextBlock Grid.Row="6" Grid.Column="1" Text="{Binding CameraModelText}" Style="{StaticResource BodyText}" Margin="0,3" />
               </Grid>
             </StackPanel>
           </Border>
 
-          <!-- 卡片信息 -->
-          <Border Style="{StaticResource CardBorder}">
+          <!-- 拷贝进度与结果 -->
+          <Border Style="{StaticResource CardBorder}" Visibility="{Binding IsCopying, Converter={StaticResource BoolToVisibility}}">
             <StackPanel>
-              <TextBlock Text="卡片信息" Style="{StaticResource SectionTitleText}" />
-              <TextBlock Text="{Binding SelectedCard.DetectionReason}" Style="{StaticResource BodyText}" />
-              <TextBlock Text="{Binding SelectedCard.MediaFoldersText}" Style="{StaticResource SecondaryText}" Margin="0,4,0,0" />
-              <TextBlock Text="{Binding TargetHintText}" Style="{StaticResource SecondaryText}" Margin="0,4,0,0" />
+              <TextBlock Text="拷贝中" Style="{StaticResource SectionTitleText}" />
+              <ProgressBar Style="{StaticResource AppProgressBar}" Maximum="100" Value="{Binding CopyPercent, Mode=OneWay}" Height="10" />
+              <TextBlock Style="{StaticResource BodyText}" Margin="0,8,0,0">
+                <Run Text="{Binding CopySpeedText, Mode=OneWay}" />
+                <Run Text=" · " />
+                <Run Text="{Binding CopyEtaText, Mode=OneWay}" />
+              </TextBlock>
+              <TextBlock Text="{Binding CopyCurrentFile}" Style="{StaticResource SecondaryText}" Margin="0,2,0,0" />
             </StackPanel>
           </Border>
 
-          <Border Style="{StaticResource CardBorder}">
+          <Border Style="{StaticResource CardBorder}" Visibility="{Binding HasResult, Converter={StaticResource BoolToVisibility}}">
             <StackPanel>
-              <TextBlock Text="接下来的步骤" Style="{StaticResource SectionTitleText}" />
-              <TextBlock Style="{StaticResource BodyText}"
-                         Text="M3 里程碑将在这里加入拍摄地点与类型填写、目标目录预览、并行拷贝与校验。" />
+              <TextBlock Text="本次结果" Style="{StaticResource SectionTitleText}" />
+              <TextBlock Text="{Binding ResultSummary}" Style="{StaticResource BodyText}" />
+              <ItemsControl ItemsSource="{Binding Failures}" Margin="0,6,0,0">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate>
+                    <TextBlock Text="{Binding}" Style="{StaticResource SecondaryText}" Foreground="{DynamicResource ErrorBrush}" />
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
             </StackPanel>
           </Border>
         </StackPanel>

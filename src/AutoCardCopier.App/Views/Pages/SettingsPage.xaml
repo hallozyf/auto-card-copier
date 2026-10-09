@@ -1,28 +1,108 @@
 <UserControl x:Class="AutoCardCopier.App.Views.Pages.SettingsPage"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
-  <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="24,20,24,24">
-    <StackPanel>
-      <TextBlock Text="{Binding Title}" Style="{StaticResource PageTitleText}" />
-      <TextBlock Text="{Binding Description}" Style="{StaticResource SecondaryText}" Margin="0,6,0,16" />
-      <Border Style="{StaticResource CardBorder}">
-        <StackPanel>
-          <TextBlock Text="当前状态" Style="{StaticResource SectionTitleText}" />
-          <TextBlock Text="{Binding StatusText}" Style="{StaticResource BodyText}" />
-        </StackPanel>
-      </Border>
+  <Grid Margin="24,20,24,24">
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="*" />
+    </Grid.RowDefinitions>
 
-      <Border Style="{StaticResource CardBorder}">
-        <StackPanel>
-          <TextBlock Text="数据位置" Style="{StaticResource SectionTitleText}" />
-          <TextBlock Text="数据目录" Style="{StaticResource SecondaryText}" Margin="0,4,0,0" />
-          <TextBox Text="{Binding DataDirectory, Mode=OneWay}" Style="{StaticResource AppTextBox}"
-                   IsReadOnly="True" Margin="0,2,0,10" />
-          <TextBlock Text="配置文件" Style="{StaticResource SecondaryText}" />
-          <TextBox Text="{Binding SettingsPath, Mode=OneWay}" Style="{StaticResource AppTextBox}"
-                   IsReadOnly="True" Margin="0,2,0,0" />
-        </StackPanel>
-      </Border>
+    <StackPanel Grid.Row="0" Margin="0,0,0,12">
+      <TextBlock Text="{Binding Title}" Style="{StaticResource PageTitleText}" />
+      <TextBlock Text="{Binding Description}" Style="{StaticResource SecondaryText}" Margin="0,6,0,0" />
     </StackPanel>
-  </ScrollViewer>
+
+    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+      <StackPanel>
+        <Border Style="{StaticResource CardBorder}">
+          <StackPanel>
+            <TextBlock Text="目标与命名" Style="{StaticResource SectionTitleText}" />
+            <TextBlock Text="素材目标根目录（支持网络路径，例如 NAS 映射盘）" Style="{StaticResource SecondaryText}" />
+            <Grid Margin="0,4,0,10">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+              </Grid.ColumnDefinitions>
+              <TextBox Grid.Column="0" Style="{StaticResource AppTextBox}"
+                       Text="{Binding PrimaryTargetRoot, UpdateSourceTrigger=PropertyChanged}" />
+              <Button Grid.Column="1" Content="浏览…" Style="{StaticResource SecondaryButton}" Margin="8,0,0,0"
+                      Command="{Binding BrowseTargetCommand}" />
+            </Grid>
+
+            <TextBlock Text="命名模板（占位符：{yyyy} {yyyy-MM-dd} {type} {location} {camera} {seq}）" Style="{StaticResource SecondaryText}" />
+            <TextBox Style="{StaticResource AppTextBox}" Margin="0,4,0,10"
+                     Text="{Binding NameTemplate, UpdateSourceTrigger=PropertyChanged}" />
+
+            <TextBlock Text="子目录结构" Style="{StaticResource SecondaryText}" />
+            <ComboBox Style="{StaticResource AppComboBox}" Margin="0,4,0,10"
+                      ItemsSource="{Binding SubFolderModeOptions}" DisplayMemberPath="Value" SelectedValuePath="Key"
+                      SelectedValue="{Binding SelectedSubFolderMode, Mode=TwoWay}" />
+
+            <TextBlock Text="项目目录已存在时" Style="{StaticResource SecondaryText}" />
+            <ComboBox Style="{StaticResource AppComboBox}" Margin="0,4,0,0"
+                      ItemsSource="{Binding ConflictPolicyOptions}" DisplayMemberPath="Value" SelectedValuePath="Key"
+                      SelectedValue="{Binding SelectedConflictPolicy, Mode=TwoWay}" />
+          </StackPanel>
+        </Border>
+
+        <Border Style="{StaticResource CardBorder}">
+          <StackPanel>
+            <TextBlock Text="拷贝与校验" Style="{StaticResource SectionTitleText}" />
+            <TextBlock Text="并行拷贝文件数（1 至 8，机械盘与网络盘建议 2 至 4）" Style="{StaticResource SecondaryText}" />
+            <ComboBox Style="{StaticResource AppComboBox}" Margin="0,4,0,10" Width="120" HorizontalAlignment="Left"
+                      ItemsSource="{Binding ParallelismOptions}" SelectedItem="{Binding MaxParallelism, Mode=TwoWay}" />
+
+            <TextBlock Text="校验档位" Style="{StaticResource SecondaryText}" />
+            <ComboBox Style="{StaticResource AppComboBox}" Margin="0,4,0,10"
+                      ItemsSource="{Binding VerifyLevelOptions}" DisplayMemberPath="Value" SelectedValuePath="Key"
+                      SelectedValue="{Binding SelectedVerifyLevel, Mode=TwoWay}" />
+
+            <CheckBox Style="{StaticResource AppCheckBox}" Content="对视频文件也做哈希校验（更严格但更慢）"
+                      IsChecked="{Binding VerifyVideo, Mode=TwoWay}" />
+          </StackPanel>
+        </Border>
+
+        <Border Style="{StaticResource CardBorder}">
+          <StackPanel>
+            <TextBlock Text="卡片与格式化" Style="{StaticResource SectionTitleText}" />
+            <CheckBox Style="{StaticResource AppCheckBox}" Content="校验通过后自动格式化卡片（默认关闭，强烈建议保持关闭）"
+                      IsChecked="{Binding AutoFormatAfterVerify, Mode=TwoWay}" />
+            <TextBlock Text="自动格式化倒计时（秒）" Style="{StaticResource SecondaryText}" Margin="0,6,0,0" />
+            <TextBox Style="{StaticResource AppTextBox}" Width="120" HorizontalAlignment="Left" Margin="0,4,0,0"
+                     Text="{Binding AutoFormatCountdownSec, UpdateSourceTrigger=PropertyChanged}" />
+          </StackPanel>
+        </Border>
+
+        <Border Style="{StaticResource CardBorder}">
+          <StackPanel>
+            <TextBlock Text="界面与数据" Style="{StaticResource SectionTitleText}" />
+            <TextBlock Text="主题" Style="{StaticResource SecondaryText}" />
+            <ComboBox Style="{StaticResource AppComboBox}" Margin="0,4,0,10" Width="200" HorizontalAlignment="Left"
+                      ItemsSource="{Binding ThemeOptions}" DisplayMemberPath="Value" SelectedValuePath="Key"
+                      SelectedValue="{Binding SelectedTheme, Mode=TwoWay}" />
+
+            <CheckBox Style="{StaticResource AppCheckBox}" Content="关闭窗口时最小化到系统托盘"
+                      IsChecked="{Binding MinimizeToTray, Mode=TwoWay}" />
+            <CheckBox Style="{StaticResource AppCheckBox}" Content="开机自动启动"
+                      IsChecked="{Binding AutoStart, Mode=TwoWay}" />
+
+            <TextBlock Text="日志保留天数" Style="{StaticResource SecondaryText}" Margin="0,6,0,0" />
+            <TextBox Style="{StaticResource AppTextBox}" Width="120" HorizontalAlignment="Left" Margin="0,4,0,10"
+                     Text="{Binding LogRetentionDays, UpdateSourceTrigger=PropertyChanged}" />
+
+            <TextBlock Text="数据目录" Style="{StaticResource SecondaryText}" />
+            <TextBox Style="{StaticResource AppTextBox}" IsReadOnly="True" Margin="0,4,0,8"
+                     Text="{Binding DataDirectory, Mode=OneWay}" />
+            <Button Content="打开数据目录" Style="{StaticResource SecondaryButton}" HorizontalAlignment="Left"
+                    Command="{Binding OpenDataFolderCommand}" />
+          </StackPanel>
+        </Border>
+
+        <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+          <Button Content="保存设置" Style="{StaticResource PrimaryButton}" Command="{Binding SaveCommand}" />
+          <TextBlock Text="{Binding SaveMessage}" Style="{StaticResource SecondaryText}" VerticalAlignment="Center" Margin="12,0,0,0" />
+        </StackPanel>
+      </StackPanel>
+    </ScrollViewer>
+  </Grid>
 </UserControl>

@@ -68,5 +68,8 @@ namespace AutoCardCopier.App.ViewModels
 
         /// <summary>标题栏副标题（版本号）。</summary>
         public string VersionText { get { return "v" + AppServices.VersionText; } }
+
+        /// <summary>导航栏底部说明。</summary>
+        public string FooterText { get { return "开发中 · 已完成 M1–M3"; } }
     }
 }

@@ -1,8 +1,10 @@
 using System;
 using System.Windows;
+using AutoCardCopier.Core.Copying;
 using AutoCardCopier.Core.Devices;
 using AutoCardCopier.Core.Infrastructure;
 using AutoCardCopier.Core.Logging;
+using AutoCardCopier.Core.Projects;
 using AutoCardCopier.Core.Scanning;
 using AutoCardCopier.Core.Settings;
 using Microsoft.Win32;
@@ -37,6 +39,18 @@ namespace AutoCardCopier.App
 
         /// <summary>素材扫描器。</summary>
         public MediaScanner Scanner { get; private set; }
+
+        /// <summary>拷贝计划生成器。</summary>
+        public CopyPlanBuilder PlanBuilder { get; private set; }
+
+        /// <summary>并行拷贝引擎。</summary>
+        public CopyEngine CopyEngine { get; private set; }
+
+        /// <summary>清单与项目元数据写入器。</summary>
+        public ManifestWriter ManifestWriter { get; private set; }
+
+        /// <summary>预设（常用地点与拍摄类型）。</summary>
+        public PresetsStore Presets { get; private set; }
 
         /// <summary>程序版本号。</summary>
         public static string VersionText
@@ -77,6 +91,10 @@ namespace AutoCardCopier.App
             // 第四步：创建领域服务
             services.Scanner = new MediaScanner(services.Logger);
             services.CardDetector = new CardDetector(services.Logger, pollSeconds: 3);
+            services.PlanBuilder = new CopyPlanBuilder(services.Logger);
+            services.CopyEngine = new CopyEngine(services.Logger);
+            services.ManifestWriter = new ManifestWriter(services.Logger);
+            services.Presets = new PresetsStore(AppPaths.PresetsFile(services.DataDirectory), services.Logger);
 
             return services;
         }

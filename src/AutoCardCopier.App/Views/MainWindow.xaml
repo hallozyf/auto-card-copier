@@ -79,7 +79,7 @@
           </ListBox>
 
           <TextBlock DockPanel.Dock="Bottom" Style="{StaticResource SecondaryText}" Margin="16,0,16,14"
-                     Text="M1 骨架版本" HorizontalAlignment="Left" />
+                     Text="{Binding FooterText}" HorizontalAlignment="Left" />
         </DockPanel>
       </Border>
 
