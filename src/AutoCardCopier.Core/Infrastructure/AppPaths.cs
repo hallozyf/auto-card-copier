@@ -84,6 +84,9 @@ namespace AutoCardCopier.Core.Infrastructure
         /// <summary>预设文件路径（常用地点与拍摄类型）。</summary>
         public static string PresetsFile(string dataDirectory) { return Path.Combine(dataDirectory, "presets.json"); }
 
+        /// <summary>任务历史文件路径。</summary>
+        public static string HistoryFile(string dataDirectory) { return Path.Combine(dataDirectory, "history.json"); }
+
         /// <summary>
         /// 判断目录是否可写：尝试创建目录并写入一个探测文件后立即删除。
         /// </summary>

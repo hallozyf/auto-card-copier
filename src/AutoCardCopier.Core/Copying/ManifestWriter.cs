@@ -108,7 +108,7 @@ namespace AutoCardCopier.Core.Copying
             try
             {
                 ManifestModel manifest = BuildManifest(plan, scan, context, settings, copyResult, verifyReport, cardIdentity, projectId);
-                ProjectMeta meta = BuildProjectMeta(plan, scan, context, verifyReport, cardIdentity, projectId, manifest);
+                ProjectMeta meta = BuildProjectMeta(plan, scan, context, verifyReport, cardIdentity, projectId);
 
                 JsonStore.WriteAllTextAtomic(Path.Combine(plan.ProjectDirectory, ManifestFileName), JsonStore.Serialize(manifest));
                 JsonStore.WriteAllTextAtomic(Path.Combine(plan.ProjectDirectory, ProjectFileName), JsonStore.Serialize(meta));
@@ -189,7 +189,7 @@ namespace AutoCardCopier.Core.Copying
 
         /// <summary>构造项目元数据。</summary>
         public ProjectMeta BuildProjectMeta(CopyPlan plan, ScanResult scan, ProjectContext context,
-            VerifyReport verifyReport, CardIdentity cardIdentity, string projectId, ManifestModel manifest)
+            VerifyReport verifyReport, CardIdentity cardIdentity, string projectId)
         {
             DateTime shootStart = scan != null && scan.EarliestUtc.HasValue ? scan.EarliestUtc.Value.ToLocalTime() : context.ShootDate;
             DateTime shootEnd = scan != null && scan.LatestUtc.HasValue ? scan.LatestUtc.Value.ToLocalTime() : context.ShootDate;

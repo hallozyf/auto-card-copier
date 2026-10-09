@@ -2,6 +2,7 @@ using System;
 using System.Windows;
 using AutoCardCopier.Core.Copying;
 using AutoCardCopier.Core.Devices;
+using AutoCardCopier.Core.History;
 using AutoCardCopier.Core.Infrastructure;
 using AutoCardCopier.Core.Logging;
 using AutoCardCopier.Core.Projects;
@@ -52,6 +53,12 @@ namespace AutoCardCopier.App
         /// <summary>预设（常用地点与拍摄类型）。</summary>
         public PresetsStore Presets { get; private set; }
 
+        /// <summary>本地项目库。</summary>
+        public ProjectLibrary ProjectLibrary { get; private set; }
+
+        /// <summary>任务历史。</summary>
+        public TaskHistoryStore TaskHistory { get; private set; }
+
         /// <summary>程序版本号。</summary>
         public static string VersionText
         {
@@ -95,6 +102,8 @@ namespace AutoCardCopier.App
             services.CopyEngine = new CopyEngine(services.Logger);
             services.ManifestWriter = new ManifestWriter(services.Logger);
             services.Presets = new PresetsStore(AppPaths.PresetsFile(services.DataDirectory), services.Logger);
+            services.ProjectLibrary = new ProjectLibrary(AppPaths.ProjectsDirectory(services.DataDirectory), services.Logger);
+            services.TaskHistory = new TaskHistoryStore(AppPaths.HistoryFile(services.DataDirectory), services.Logger);
 
             return services;
         }

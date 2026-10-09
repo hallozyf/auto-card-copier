@@ -6,11 +6,14 @@ using System.Threading.Tasks;
 using System.Windows;
 using AutoCardCopier.Core.Copying;
 using AutoCardCopier.Core.Devices;
+using AutoCardCopier.Core.History;
 using AutoCardCopier.Core.Infrastructure;
 using AutoCardCopier.Core.Logging;
 using AutoCardCopier.Core.Projects;
 using AutoCardCopier.Core.Scanning;
 using AutoCardCopier.Core.Settings;
+// 与 System.Threading.Tasks.TaskStatus 同名，这里显式指向领域枚举
+using TaskStatus = AutoCardCopier.Core.History.TaskStatus;
 
 namespace AutoCardCopier.App.ViewModels.Pages
 {
@@ -107,6 +110,7 @@ namespace AutoCardCopier.App.ViewModels.Pages
             services.CardDetector.CardsChanged += OnCardsChanged;
             services.CardDetector.Start();
             RefreshCards();
+            DetectInterruptedTasks();
         }
 
         // ---------- 卡片列表 ----------
@@ -380,6 +384,21 @@ namespace AutoCardCopier.App.ViewModels.Pages
         /// <summary>最近一次校验通过的卡片指纹（供后续格式化护栏使用）。</summary>
         public string LastVerifiedCardFingerprint { get; private set; }
 
+        // ---------- 任务历史与续传提示 ----------
+
+        private string _currentTaskId;
+        private CopyPlan _currentPlan;
+        private CopyResult _currentCopyResult;
+        private VerifyReport _currentVerifyReport;
+        private ProjectContext _currentContext;
+        private CardItemViewModel _currentCardItem;
+
+        /// <summary>上次被中断任务的提示文本（为空表示没有）。</summary>
+        public string ResumeHintText { get; private set; }
+
+        /// <summary>是否存在中断提示。</summary>
+        public bool HasResumeHint { get { return !string.IsNullOrEmpty(ResumeHintText); } }
+
         // ---------- 命令 ----------
 
         public RelayCommand RefreshCommand { get; private set; }
@@ -497,6 +516,126 @@ namespace AutoCardCopier.App.ViewModels.Pages
             RaisePropertyChanged("CanStartCopy");
         }
 
+        /// <summary>
+        /// 启动时检查上次是否有被中断的任务。
+        /// 有的话给出提示：已拷贝的文件会保留，重新开始时按策略自动跳过，从而近似实现断点续传。
+        /// </summary>
+        private void DetectInterruptedTasks()
+        {
+            try
+            {
+                System.Collections.Generic.IList<TaskRecord> interrupted = Services.TaskHistory.TakeInterruptedTasks();
+                if (interrupted.Count == 0) { ResumeHintText = string.Empty; }
+                else
+                {
+                    TaskRecord last = interrupted[interrupted.Count - 1];
+                    ResumeHintText = "上次有任务未完成：" + last.ProjectName + "；已拷贝的文件仍然保留，重新开始会自动跳过已完成的文件。";
+                    StatusText = ResumeHintText;
+                }
+            }
+            catch (Exception ex)
+            {
+                _log.Warn("检查中断任务失败", ex);
+            }
+            RaisePropertyChanged("ResumeHintText");
+            RaisePropertyChanged("HasResumeHint");
+        }
+
+        /// <summary>任务开始时写入一条"进行中"记录。</summary>
+        private void BeginTaskRecord(CopyPlan plan, CardItemViewModel cardItem, ProjectContext context)
+        {
+            _currentTaskId = ProjectMeta.NewId();
+            _currentPlan = plan;
+            _currentContext = context;
+            _currentCardItem = cardItem;
+            _currentCopyResult = null;
+            _currentVerifyReport = null;
+
+            Services.TaskHistory.Upsert(new TaskRecord
+            {
+                Id = _currentTaskId,
+                StatusText = TaskStatus.Running.ToString(),
+                StartedAt = TimeUtil.ToIso(DateTime.Now),
+                ProjectName = plan.ProjectName,
+                TargetPath = plan.ProjectDirectory,
+                FileCount = plan.TotalCount,
+                TotalBytes = plan.TotalBytes,
+                CardLabel = cardItem == null ? string.Empty : cardItem.Card.VolumeLabel,
+                CardFingerprint = cardItem == null ? string.Empty : cardItem.Card.Identity.Fingerprint,
+                VerifyLevel = Services.Settings.VerifyLevel.ToString()
+            });
+        }
+
+        /// <summary>任务结束时补全记录，并把项目写入本地项目库。</summary>
+        private void FinishTaskRecord()
+        {
+            if (_currentTaskId == null || _currentPlan == null) { return; }
+            try
+            {
+                CopyResult copy = _currentCopyResult;
+                VerifyReport verify = _currentVerifyReport;
+
+                TaskStatus status;
+                string message;
+                if (copy == null)
+                {
+                    status = TaskStatus.Failed;
+                    message = "任务未完成（计划或预检阶段中止）";
+                }
+                else if (copy.Cancelled)
+                {
+                    status = TaskStatus.Cancelled;
+                    message = "用户取消";
+                }
+                else if (copy.FailedFiles > 0 || (verify != null && !verify.AllPassed))
+                {
+                    status = TaskStatus.Partial;
+                    message = string.Format("拷贝失败 {0} 个，校验失败 {1} 个",
+                        copy.FailedFiles, verify == null ? 0 : verify.FailedFiles);
+                }
+                else
+                {
+                    status = TaskStatus.Succeeded;
+                    message = verify == null ? "拷贝完成" : verify.Summary;
+                }
+
+                Services.TaskHistory.Upsert(new TaskRecord
+                {
+                    Id = _currentTaskId,
+                    StatusText = status.ToString(),
+                    StartedAt = TimeUtil.ToIso(DateTime.Now),
+                    FinishedAt = TimeUtil.ToIso(DateTime.Now),
+                    ProjectName = _currentPlan.ProjectName,
+                    TargetPath = _currentPlan.ProjectDirectory,
+                    FileCount = _currentPlan.TotalCount,
+                    TotalBytes = _currentPlan.TotalBytes,
+                    CopiedFiles = copy == null ? 0 : copy.CopiedFiles,
+                    FailedFiles = copy == null ? 0 : copy.FailedFiles,
+                    SkippedFiles = copy == null ? 0 : copy.SkippedFiles,
+                    DurationSeconds = copy == null ? 0 : copy.Duration.TotalSeconds,
+                    AverageBytesPerSecond = copy == null ? 0 : copy.AverageBytesPerSecond,
+                    CardLabel = _currentCardItem == null ? string.Empty : _currentCardItem.Card.VolumeLabel,
+                    CardFingerprint = _currentCardItem == null ? string.Empty : _currentCardItem.Card.Identity.Fingerprint,
+                    VerifyLevel = verify == null ? Services.Settings.VerifyLevel.ToString() : verify.Level.ToString(),
+                    VerifyStatus = verify == null ? "未校验" : (verify.AllPassed ? "校验通过" : "校验失败"),
+                    Message = message,
+                    LogFile = AppPaths.TaskLogDirectory(Services.DataDirectory)
+                });
+
+                // 只有真正产生素材时才写入项目库，避免失败任务污染项目列表
+                if (status == TaskStatus.Succeeded || status == TaskStatus.Partial)
+                {
+                    ProjectMeta meta = Services.ManifestWriter.BuildProjectMeta(
+                        _currentPlan, _scanResult, _currentContext, verify, _currentCardItem == null ? null : _currentCardItem.Card.Identity, _currentTaskId);
+                    Services.ProjectLibrary.Save(meta);
+                }
+            }
+            catch (Exception ex)
+            {
+                _log.Warn("写入任务历史失败", ex);
+            }
+        }
+
         // ---------- 拷贝 ----------
 
         private void CancelCopy()
@@ -568,6 +707,9 @@ namespace AutoCardCopier.App.ViewModels.Pages
                 }
                 foreach (string warning in plan.Warnings) { failures.Add("提示：" + warning); }
 
+                // 任务开始即落一条记录：程序若异常退出，下次启动就能发现并提示
+                BeginTaskRecord(plan, item, context);
+
                 // 3. 拷贝
                 _cancellation = new CancellationTokenSource();
                 _pauseToken.Resume();
@@ -587,6 +729,7 @@ namespace AutoCardCopier.App.ViewModels.Pages
 
                 CopyResult copyResult = await Services.CopyEngine.RunAsync(
                     plan, settings, copyProgress, _pauseToken, _cancellation.Token);
+                _currentCopyResult = copyResult;
 
                 foreach (CopyFailure failure in copyResult.Failures)
                 {
@@ -612,6 +755,7 @@ namespace AutoCardCopier.App.ViewModels.Pages
                 {
                     return VerifyService.Verify(plan, settings, verifyProgress, CancellationToken.None, _log);
                 });
+                _currentVerifyReport = report;
 
                 foreach (FileVerifyFailure failure in report.Failures)
                 {
@@ -650,6 +794,7 @@ namespace AutoCardCopier.App.ViewModels.Pages
             }
             finally
             {
+                FinishTaskRecord();
                 IsCopying = false;
                 IsBusy = false;
                 IsPaused = false;
@@ -663,31 +808,7 @@ namespace AutoCardCopier.App.ViewModels.Pages
         }
     }
 
-    /// <summary>项目库页：M4 里程碑接入数据。</summary>
-    public sealed class ProjectsViewModel : PageViewModelBase
-    {
-        public ProjectsViewModel(AppServices services)
-            : base(services, "项目库", "按拍摄时间、地点、类型检索历史项目。")
-        {
-            StatusText = "项目库将在 M4 里程碑接入数据。";
-        }
-
-        /// <summary>当前状态提示。</summary>
-        public string StatusText { get; private set; }
-    }
-
-    /// <summary>历史页：M4 里程碑接入数据。</summary>
-    public sealed class HistoryViewModel : PageViewModelBase
-    {
-        public HistoryViewModel(AppServices services)
-            : base(services, "历史", "查看每一次拷卡任务的结果、耗时与失败明细。")
-        {
-            StatusText = "任务历史将在 M4 里程碑接入数据。";
-        }
-
-        /// <summary>当前状态提示。</summary>
-        public string StatusText { get; private set; }
-    }
+    // 项目库页与历史页的视图模型位于 ProjectPages.cs
 
     /// <summary>设置页视图模型：可编辑全部常用设置并保存。</summary>
     public sealed class SettingsViewModel : PageViewModelBase

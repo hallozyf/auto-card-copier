@@ -1,16 +1,120 @@
 <UserControl x:Class="AutoCardCopier.App.Views.Pages.ProjectsPage"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
-  <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="24,20,24,24">
-    <StackPanel>
+  <Grid Margin="24,20,24,24">
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="*" />
+    </Grid.RowDefinitions>
+
+    <StackPanel Grid.Row="0" Margin="0,0,0,12">
       <TextBlock Text="{Binding Title}" Style="{StaticResource PageTitleText}" />
-      <TextBlock Text="{Binding Description}" Style="{StaticResource SecondaryText}" Margin="0,6,0,16" />
-      <Border Style="{StaticResource CardBorder}">
-        <StackPanel>
-          <TextBlock Text="当前状态" Style="{StaticResource SectionTitleText}" />
-          <TextBlock Text="{Binding StatusText}" Style="{StaticResource BodyText}" />
-        </StackPanel>
-      </Border>
+      <TextBlock Text="{Binding Description}" Style="{StaticResource SecondaryText}" Margin="0,6,0,0" />
     </StackPanel>
-  </ScrollViewer>
+
+    <!-- 筛选条 -->
+    <Border Grid.Row="1" Style="{StaticResource CardBorder}" Padding="14">
+      <Grid>
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="*" />
+          <ColumnDefinition Width="170" />
+          <ColumnDefinition Width="Auto" />
+        </Grid.ColumnDefinitions>
+
+        <TextBox Grid.Column="0" Style="{StaticResource AppTextBox}" Margin="0,0,8,0"
+                 Text="{Binding Keyword, UpdateSourceTrigger=PropertyChanged}" />
+        <ComboBox Grid.Column="1" Style="{StaticResource AppComboBox}" Margin="0,0,8,0"
+                  ItemsSource="{Binding TypeOptions}" SelectedItem="{Binding SelectedType, Mode=TwoWay}" />
+        <StackPanel Grid.Column="2" Orientation="Horizontal">
+          <Button Content="搜索" Style="{StaticResource PrimaryButton}" Command="{Binding SearchCommand}" Margin="0,0,8,0" />
+          <Button Content="清除筛选" Style="{StaticResource SecondaryButton}" Command="{Binding ClearFilterCommand}" Margin="0,0,8,0" />
+          <Button Content="从服务器重建" Style="{StaticResource SecondaryButton}" Command="{Binding RebuildCommand}" />
+        </StackPanel>
+      </Grid>
+    </Border>
+
+    <Grid Grid.Row="2">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="*" />
+        <ColumnDefinition Width="320" />
+      </Grid.ColumnDefinitions>
+
+      <Border Grid.Column="0" Style="{StaticResource CardBorder}" Margin="0,0,12,0">
+        <DockPanel>
+          <TextBlock DockPanel.Dock="Top" Text="{Binding SummaryText}" Style="{StaticResource SecondaryText}" Margin="0,0,0,8" />
+          <ListView ItemsSource="{Binding Projects}" SelectedItem="{Binding SelectedProject, Mode=TwoWay}"
+                    Style="{StaticResource AppListView}" ItemContainerStyle="{StaticResource AppListViewItem}">
+            <ListView.ItemTemplate>
+              <DataTemplate>
+                <Grid>
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="110" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                  </Grid.ColumnDefinitions>
+                  <TextBlock Grid.Column="0" Text="{Binding DateText}" Style="{StaticResource SecondaryText}" VerticalAlignment="Center" />
+                  <StackPanel Grid.Column="1">
+                    <TextBlock Text="{Binding LocationText}" Style="{StaticResource BodyText}" FontWeight="SemiBold" />
+                    <TextBlock Style="{StaticResource SecondaryText}">
+                      <Run Text="{Binding TypeText, Mode=OneWay}" />
+                      <Run Text=" · " />
+                      <Run Text="{Binding CameraText, Mode=OneWay}" />
+                    </TextBlock>
+                  </StackPanel>
+                  <StackPanel Grid.Column="2" HorizontalAlignment="Right">
+                    <TextBlock Text="{Binding SizeText}" Style="{StaticResource BodyText}" HorizontalAlignment="Right" />
+                    <TextBlock Text="{Binding CountText}" Style="{StaticResource SecondaryText}" HorizontalAlignment="Right" />
+                  </StackPanel>
+                </Grid>
+              </DataTemplate>
+            </ListView.ItemTemplate>
+          </ListView>
+        </DockPanel>
+      </Border>
+
+      <ScrollViewer Grid.Column="1" VerticalScrollBarVisibility="Auto">
+        <StackPanel>
+          <Border Style="{StaticResource CardBorder}">
+            <StackPanel>
+              <TextBlock Text="项目详情" Style="{StaticResource SectionTitleText}" />
+              <TextBlock Text="{Binding SelectedProject.Name}" Style="{StaticResource BodyText}" FontWeight="SemiBold" />
+              <TextBlock Text="{Binding SelectedProject.PathText}" Style="{StaticResource SecondaryText}" Margin="0,4,0,0" />
+              <TextBlock Style="{StaticResource SecondaryText}" Margin="0,4,0,0">
+                <Run Text="{Binding SelectedProject.CountText, Mode=OneWay}" />
+                <Run Text=" · " />
+                <Run Text="{Binding SelectedProject.SizeText, Mode=OneWay}" />
+                <Run Text=" · " />
+                <Run Text="{Binding SelectedProject.VerifyText, Mode=OneWay}" />
+              </TextBlock>
+              <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                <Button Content="打开目录" Style="{StaticResource SecondaryButton}" Command="{Binding OpenFolderCommand}" Margin="0,0,8,0" />
+                <Button Content="复制路径" Style="{StaticResource SecondaryButton}" Command="{Binding CopyPathCommand}" Margin="0,0,8,0" />
+                <Button Content="删除记录" Style="{StaticResource SecondaryButton}" Command="{Binding DeleteCommand}" />
+              </StackPanel>
+            </StackPanel>
+          </Border>
+
+          <Border Style="{StaticResource CardBorder}">
+            <StackPanel>
+              <TextBlock Text="修改拍摄信息" Style="{StaticResource SectionTitleText}" />
+              <TextBlock Text="地点" Style="{StaticResource SecondaryText}" />
+              <TextBox Style="{StaticResource AppTextBox}" Margin="0,4,0,8" Text="{Binding EditLocation, UpdateSourceTrigger=PropertyChanged}" />
+              <TextBlock Text="拍摄类型" Style="{StaticResource SecondaryText}" />
+              <TextBox Style="{StaticResource AppTextBox}" Margin="0,4,0,8" Text="{Binding EditType, UpdateSourceTrigger=PropertyChanged}" />
+              <TextBlock Text="备注" Style="{StaticResource SecondaryText}" />
+              <TextBox Style="{StaticResource AppTextBox}" Margin="0,4,0,8" AcceptsReturn="True" MinHeight="60"
+                       TextWrapping="Wrap" Text="{Binding EditNote, UpdateSourceTrigger=PropertyChanged}" />
+              <Button Content="保存修改" Style="{StaticResource PrimaryButton}" HorizontalAlignment="Left"
+                      Command="{Binding SaveEditCommand}" />
+            </StackPanel>
+          </Border>
+
+          <Border Style="{StaticResource CardBorder}">
+            <TextBlock Text="{Binding StatusText}" Style="{StaticResource SecondaryText}" />
+          </Border>
+        </StackPanel>
+      </ScrollViewer>
+    </Grid>
+  </Grid>
 </UserControl>
