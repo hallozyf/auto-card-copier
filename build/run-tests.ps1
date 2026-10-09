@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     构建并运行全部自动化测试。
 .DESCRIPTION
@@ -7,23 +7,23 @@
 #>
 param(
     [ValidateSet('Debug', 'Release')]
-    [string]\$Configuration = 'Release',
-    [switch]\$SkipBuild
+    [string]$Configuration = 'Release',
+    [switch]$SkipBuild
 )
 
-\$ErrorActionPreference = 'Stop'
-\$repoRoot = Split-Path -Parent \$PSScriptRoot
+$ErrorActionPreference = 'Stop'
+$repoRoot = Split-Path -Parent $PSScriptRoot
 
-if (-not \$SkipBuild) {
-    & (Join-Path \$PSScriptRoot 'build.ps1') -Configuration \$Configuration
-    if (\$LASTEXITCODE -ne 0) { exit \$LASTEXITCODE }
+if (-not $SkipBuild) {
+    & (Join-Path $PSScriptRoot 'build.ps1') -Configuration $Configuration
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
 
-\$testExe = Join-Path \$repoRoot \"build\out\\\$Configuration\AutoCardCopier.Tests.exe\"
-if (-not (Test-Path -LiteralPath \$testExe)) {
-    Write-Host \"未找到测试程序：\$testExe\" -ForegroundColor Red
+$testExe = Join-Path $repoRoot ('build\out\' + $Configuration + '\AutoCardCopier.Tests.exe')
+if (-not (Test-Path -LiteralPath $testExe)) {
+    Write-Host "未找到测试程序: $testExe" -ForegroundColor Red
     exit 1
 }
 
-& \$testExe
-exit \$LASTEXITCODE
+& $testExe
+exit $LASTEXITCODE
