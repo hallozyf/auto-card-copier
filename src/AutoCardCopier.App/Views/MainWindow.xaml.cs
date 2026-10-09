@@ -1,6 +1,8 @@
 using System;
 using System.Windows;
+using System.Windows.Interop;
 using AutoCardCopier.App.ViewModels;
+using AutoCardCopier.Core.Interop;
 using AutoCardCopier.Core.Logging;
 
 namespace AutoCardCopier.App.Views
@@ -25,6 +27,28 @@ namespace AutoCardCopier.App.Views
             DataContext = _viewModel;
 
             RestoreWindowState();
+        }
+
+        protected override void OnSourceInitialized(EventArgs e)
+        {
+            base.OnSourceInitialized(e);
+            // 监听 Windows 的设备变化消息：插拔存储卡时立即刷新卡片列表
+            var source = PresentationSource.FromVisual(this) as HwndSource;
+            if (source != null) { source.AddHook(OnWindowMessage); }
+        }
+
+        /// <summary>窗口消息回调：只处理设备变化，其余交给系统默认处理。</summary>
+        private IntPtr OnWindowMessage(IntPtr hwnd, int message, IntPtr wParam, IntPtr lParam, ref bool handled)
+        {
+            if (message == NativeMethods.WM_DEVICECHANGE)
+            {
+                int eventType = wParam.ToInt32();
+                if (eventType == NativeMethods.DBT_DEVICEARRIVAL || eventType == NativeMethods.DBT_DEVICEREMOVECOMPLETE)
+                {
+                    _services.CardDetector.NotifyDeviceChanged();
+                }
+            }
+            return IntPtr.Zero;
         }
 
         /// <summary>从设置恢复窗口尺寸与最大化状态。</summary>

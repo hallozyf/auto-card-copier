@@ -5,6 +5,7 @@
              xmlns:vmp="clr-namespace:AutoCardCopier.App.ViewModels.Pages"
              xmlns:pages="clr-namespace:AutoCardCopier.App.Views.Pages"
              xmlns:views="clr-namespace:AutoCardCopier.App.Views"
+             xmlns:conv="clr-namespace:AutoCardCopier.App.Converters"
              ShutdownMode="OnMainWindowClose">
   <Application.Resources>
     <ResourceDictionary>
@@ -13,6 +14,8 @@
         <ResourceDictionary Source="Themes/Colors.Light.xaml" />
         <ResourceDictionary Source="Themes/Controls.xaml" />
       </ResourceDictionary.MergedDictionaries>
+
+      <conv:BoolToVisibilityConverter x:Key="BoolToVisibility" />
 
       <!-- 视图模型到页面的映射：新增页面时在这里登记一次即可 -->
       <DataTemplate DataType="{x:Type vmp:CardsViewModel}">

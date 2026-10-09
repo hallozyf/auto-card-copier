@@ -1,7 +1,9 @@
 using System;
 using System.Windows;
+using AutoCardCopier.Core.Devices;
 using AutoCardCopier.Core.Infrastructure;
 using AutoCardCopier.Core.Logging;
+using AutoCardCopier.Core.Scanning;
 using AutoCardCopier.Core.Settings;
 using Microsoft.Win32;
 
@@ -29,6 +31,12 @@ namespace AutoCardCopier.App
 
         /// <summary>事件总线。</summary>
         public EventBus Events { get; private set; }
+
+        /// <summary>卡片检测器。</summary>
+        public CardDetector CardDetector { get; private set; }
+
+        /// <summary>素材扫描器。</summary>
+        public MediaScanner Scanner { get; private set; }
 
         /// <summary>程序版本号。</summary>
         public static string VersionText
@@ -65,6 +73,10 @@ namespace AutoCardCopier.App
             services.Settings.Normalize(services.Logger);
             services.Logger.Info("程序启动，版本 " + VersionText + "，数据目录 " + services.DataDirectory);
             services.Logger.CleanupOldFiles(services.Settings.LogRetentionDays);
+
+            // 第四步：创建领域服务
+            services.Scanner = new MediaScanner(services.Logger);
+            services.CardDetector = new CardDetector(services.Logger, pollSeconds: 3);
 
             return services;
         }
@@ -114,6 +126,11 @@ namespace AutoCardCopier.App
         /// <summary>释放资源。</summary>
         public void Shutdown()
         {
+            if (CardDetector != null)
+            {
+                CardDetector.Dispose();
+                CardDetector = null;
+            }
             if (Logger != null)
             {
                 Logger.Info("程序退出");
