@@ -1,0 +1,16 @@
+<UserControl x:Class="AutoCardCopier.App.Views.Pages.HistoryPage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="24,20,24,24">
+    <StackPanel>
+      <TextBlock Text="{Binding Title}" Style="{StaticResource PageTitleText}" />
+      <TextBlock Text="{Binding Description}" Style="{StaticResource SecondaryText}" Margin="0,6,0,16" />
+      <Border Style="{StaticResource CardBorder}">
+        <StackPanel>
+          <TextBlock Text="当前状态" Style="{StaticResource SectionTitleText}" />
+          <TextBlock Text="{Binding StatusText}" Style="{StaticResource BodyText}" />
+        </StackPanel>
+      </Border>
+    </StackPanel>
+  </ScrollViewer>
+</UserControl>

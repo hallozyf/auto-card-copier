@@ -1,0 +1,80 @@
+<Project ToolsVersion="4.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <Import Project="..\..\build\Common.props" />
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <RootNamespace>AutoCardCopier.App</RootNamespace>
+    <AssemblyName>AutoCardCopier.App</AssemblyName>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <StartupObject>AutoCardCopier.App.App</StartupObject>
+  </PropertyGroup>
+
+  <!-- 代码文件使用通配符收录；XAML 必须逐个声明，标记编译器才能生成对应的分部类 -->
+  <ItemGroup>
+    <Compile Include="**\*.cs" Exclude="obj\**\*.cs;bin\**\*.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ApplicationDefinition Include="App.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </ApplicationDefinition>
+    <Page Include="Views\MainWindow.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="Views\Pages\CardsPage.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="Views\Pages\ProjectsPage.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="Views\Pages\HistoryPage.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="Views\Pages\SettingsPage.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="Views\Pages\AboutPage.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="Themes\Colors.Light.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="Themes\Colors.Dark.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="Themes\Controls.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="System" />
+    <Reference Include="System.Core" />
+    <Reference Include="System.Xml" />
+    <Reference Include="System.Runtime.Serialization" />
+    <Reference Include="System.Xaml" />
+    <Reference Include="WindowsBase" />
+    <Reference Include="PresentationCore" />
+    <Reference Include="PresentationFramework" />
+    <Reference Include="System.Windows.Forms" />
+    <Reference Include="System.Drawing" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\AutoCardCopier.Core\AutoCardCopier.Core.csproj">
+      <Project>{6F1B2C31-0A11-4C6E-9C21-1A2B3C4D5E01}</Project>
+      <Name>AutoCardCopier.Core</Name>
+    </ProjectReference>
+  </ItemGroup>
+
+  <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+</Project>

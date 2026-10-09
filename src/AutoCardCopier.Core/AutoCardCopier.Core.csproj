@@ -1,0 +1,21 @@
+<Project ToolsVersion="4.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <Import Project="..\..\build\Common.props" />
+  <PropertyGroup>
+    <OutputType>Library</OutputType>
+    <RootNamespace>AutoCardCopier.Core</RootNamespace>
+    <AssemblyName>AutoCardCopier.Core</AssemblyName>
+    <DocumentationFile>
+    </DocumentationFile>
+  </PropertyGroup>
+  <!-- 使用通配符收录源码，新增文件无需修改工程文件；obj 目录为生成物，必须排除 -->
+  <ItemGroup>
+    <Compile Include="**\*.cs" Exclude="obj\**\*.cs;bin\**\*.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <Reference Include="System" />
+    <Reference Include="System.Core" />
+    <Reference Include="System.Runtime.Serialization" />
+    <Reference Include="System.Xml" />
+  </ItemGroup>
+  <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+</Project>

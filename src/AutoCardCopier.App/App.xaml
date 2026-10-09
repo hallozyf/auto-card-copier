@@ -1,0 +1,35 @@
+<Application x:Class="AutoCardCopier.App.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:AutoCardCopier.App.ViewModels"
+             xmlns:vmp="clr-namespace:AutoCardCopier.App.ViewModels.Pages"
+             xmlns:pages="clr-namespace:AutoCardCopier.App.Views.Pages"
+             xmlns:views="clr-namespace:AutoCardCopier.App.Views"
+             ShutdownMode="OnMainWindowClose">
+  <Application.Resources>
+    <ResourceDictionary>
+      <ResourceDictionary.MergedDictionaries>
+        <!-- 第一个字典固定为主题配色，切换主题时会被整体替换 -->
+        <ResourceDictionary Source="Themes/Colors.Light.xaml" />
+        <ResourceDictionary Source="Themes/Controls.xaml" />
+      </ResourceDictionary.MergedDictionaries>
+
+      <!-- 视图模型到页面的映射：新增页面时在这里登记一次即可 -->
+      <DataTemplate DataType="{x:Type vmp:CardsViewModel}">
+        <pages:CardsPage />
+      </DataTemplate>
+      <DataTemplate DataType="{x:Type vmp:ProjectsViewModel}">
+        <pages:ProjectsPage />
+      </DataTemplate>
+      <DataTemplate DataType="{x:Type vmp:HistoryViewModel}">
+        <pages:HistoryPage />
+      </DataTemplate>
+      <DataTemplate DataType="{x:Type vmp:SettingsViewModel}">
+        <pages:SettingsPage />
+      </DataTemplate>
+      <DataTemplate DataType="{x:Type vmp:AboutViewModel}">
+        <pages:AboutPage />
+      </DataTemplate>
+    </ResourceDictionary>
+  </Application.Resources>
+</Application>
