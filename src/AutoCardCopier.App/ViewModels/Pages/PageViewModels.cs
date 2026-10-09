@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using System.Windows;
 using AutoCardCopier.Core.Copying;
 using AutoCardCopier.Core.Devices;
+using AutoCardCopier.Core.Formatting;
 using AutoCardCopier.Core.History;
 using AutoCardCopier.Core.Infrastructure;
 using AutoCardCopier.Core.Logging;
@@ -106,6 +107,8 @@ namespace AutoCardCopier.App.ViewModels.Pages
             StartCopyCommand = new AsyncRelayCommand(StartCopyAsync, delegate { return !IsBusy && CanStartCopy; });
             CancelCopyCommand = new RelayCommand(CancelCopy, delegate { return IsCopying; });
             PauseResumeCommand = new RelayCommand(TogglePause, delegate { return IsCopying; });
+            FormatCardCommand = new RelayCommand(FormatCard, delegate { return CanFormatCard; });
+            EraseCardCommand = new RelayCommand(EraseCard, delegate { return CanFormatCard; });
 
             services.CardDetector.CardsChanged += OnCardsChanged;
             services.CardDetector.Start();
@@ -130,6 +133,7 @@ namespace AutoCardCopier.App.ViewModels.Pages
                     RaisePropertyChanged("CardInfoText");
                     ScanCommand.RaiseCanExecuteChanged();
                     StartCopyCommand.RaiseCanExecuteChanged();
+                    RefreshFormatState();
                 }
             }
         }
@@ -406,6 +410,129 @@ namespace AutoCardCopier.App.ViewModels.Pages
         public AsyncRelayCommand StartCopyCommand { get; private set; }
         public RelayCommand CancelCopyCommand { get; private set; }
         public RelayCommand PauseResumeCommand { get; private set; }
+
+        // ---------- 格式化与清空 ----------
+
+        public RelayCommand FormatCardCommand { get; private set; }
+        public RelayCommand EraseCardCommand { get; private set; }
+
+        /// <summary>
+        /// 是否可以对该卡片执行格式化或清空。
+        /// 只有"本次拷贝并校验通过的那一张卡"才会解锁，这是不可绕过的安全前提。
+        /// </summary>
+        public bool CanFormatCard
+        {
+            get
+            {
+                if (SelectedCard == null || IsCopying || IsBusy) { return false; }
+                return LastVerifiedCardFingerprint != null
+                       && LastVerifiedCardFingerprint == SelectedCard.Card.Identity.Fingerprint;
+            }
+        }
+
+        /// <summary>格式化区域的提示文本。</summary>
+        public string FormatHintText
+        {
+            get
+            {
+                if (SelectedCard == null) { return "请先选择一张存储卡。"; }
+                if (CanFormatCard) { return "本次拷贝与校验已完成，可以安全格式化这张卡片。"; }
+                return "仅当本次拷贝并校验通过后，才可以对这张卡片执行格式化或清空。";
+            }
+        }
+
+        private void RefreshFormatState()
+        {
+            RaisePropertyChanged("CanFormatCard");
+            RaisePropertyChanged("FormatHintText");
+            if (FormatCardCommand != null) { FormatCardCommand.RaiseCanExecuteChanged(); }
+            if (EraseCardCommand != null) { EraseCardCommand.RaiseCanExecuteChanged(); }
+        }
+
+        /// <summary>格式化卡片（带完整的护栏检查与二次确认）。</summary>
+        private void FormatCard()
+        {
+            CardItemViewModel item = SelectedCard;
+            if (item == null || !CanFormatCard) { return; }
+
+            bool verified = true; // CanFormatCard 已经保证校验通过
+            DiskSafetyReport safety = DiskSafetyInspector.Inspect(item.Card.RootPath, verified, _log);
+            if (!safety.CanFormat)
+            {
+                StatusText = "无法格式化：" + safety.Reason;
+                return;
+            }
+
+            MessageBoxResult answer = MessageBox.Show(
+                "即将格式化卡片：" + item.DisplayName + "\n\n" +
+                "· 本次拷贝与校验已经完成\n" +
+                "· 卡片上的所有数据都会被清空，且无法恢复\n" +
+                "· 格式化文件系统：" + Services.Settings.FormatFileSystem + "\n\n" +
+                "确定要继续吗？",
+                "确认格式化卡片", MessageBoxButton.OKCancel, MessageBoxImage.Warning, MessageBoxResult.Cancel);
+            if (answer != MessageBoxResult.OK) { StatusText = "已取消格式化，卡片数据未被改动。"; return; }
+
+            StatusText = "正在格式化卡片，请勿拔出…";
+            var formatter = new CardFormatter(_log);
+            FormatResult result = formatter.Format(item.Card.RootPath, Services.Settings.FormatFileSystem,
+                item.Card.VolumeLabel, verified);
+
+            StatusText = result.Message;
+            Services.Notify(result.Success ? "卡片格式化完成" : "卡片格式化失败", result.Message);
+            RecordMaintenanceTask("格式化卡片 " + item.DisplayName, item, result);
+            if (result.Success) { LastVerifiedCardFingerprint = null; }
+            RefreshFormatState();
+            RefreshCards();
+        }
+
+        /// <summary>清空卡片素材文件（保留文件系统）。</summary>
+        private void EraseCard()
+        {
+            CardItemViewModel item = SelectedCard;
+            if (item == null || !CanFormatCard) { return; }
+
+            MessageBoxResult answer = MessageBox.Show(
+                "即将清空卡片上的素材文件：" + item.DisplayName + "\n\n" +
+                "· 只删除素材文件，保留目录结构与文件系统\n" +
+                "· 删除后无法恢复\n\n确定要继续吗？",
+                "确认清空卡片", MessageBoxButton.OKCancel, MessageBoxImage.Warning, MessageBoxResult.Cancel);
+            if (answer != MessageBoxResult.OK) { StatusText = "已取消清空操作。"; return; }
+
+            string root = string.IsNullOrEmpty(item.Card.MediaRootPath) ? item.Card.RootPath : item.Card.MediaRootPath;
+            StatusText = "正在清空卡片…";
+            var formatter = new CardFormatter(_log);
+            FormatResult result = formatter.EraseFiles(root, true, null, CancellationToken.None);
+
+            StatusText = result.Message;
+            Services.Notify(result.Success ? "卡片已清空" : "清空卡片失败", result.Message);
+            RecordMaintenanceTask("清空卡片 " + item.DisplayName, item, result);
+            RefreshFormatState();
+        }
+
+        /// <summary>把格式化/清空操作也记入任务历史，保证每一次写操作都可追溯。</summary>
+        private void RecordMaintenanceTask(string actionName, CardItemViewModel item, FormatResult result)
+        {
+            try
+            {
+                Services.TaskHistory.Add(new TaskRecord
+                {
+                    Id = ProjectMeta.NewId(),
+                    StatusText = (result.Success ? TaskStatus.Succeeded : TaskStatus.Failed).ToString(),
+                    StartedAt = TimeUtil.ToIso(DateTime.Now),
+                    FinishedAt = TimeUtil.ToIso(DateTime.Now),
+                    ProjectName = actionName,
+                    TargetPath = item.Card.RootPath,
+                    CardLabel = item.Card.VolumeLabel,
+                    CardFingerprint = item.Card.Identity.Fingerprint,
+                    Message = result.Message,
+                    VerifyStatus = "—"
+                });
+            }
+            catch (Exception ex)
+            {
+                _log.Warn("记录维护任务失败", ex);
+            }
+        }
 
         // ---------- 卡片变化 ----------
 
@@ -783,6 +910,11 @@ namespace AutoCardCopier.App.ViewModels.Pages
                     report.Summary);
                 HasResult = true;
                 StatusText = "项目目录：" + plan.ProjectDirectory;
+                RefreshFormatState();
+                Services.Notify(report.AllPassed ? "拷贝完成，校验通过" : "拷贝完成，但校验存在问题",
+                    string.Format("{0}：{1} 个文件，{2}，耗时 {3}", plan.ProjectName,
+                        Humanize.Count(copyResult.CopiedFiles), Humanize.Bytes(copyResult.CopiedBytes),
+                        Humanize.Duration(copyResult.Duration)));
             }
             catch (Exception ex)
             {

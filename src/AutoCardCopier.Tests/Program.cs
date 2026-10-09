@@ -20,6 +20,7 @@ namespace AutoCardCopier.Tests
             runner.AddRange("扫描", ScanningTests.Cases());
             runner.AddRange("拷贝与校验", CopyingTests.Cases());
             runner.AddRange("项目库与历史", LibraryTests.Cases());
+            runner.AddRange("格式化护栏", FormatTests.Cases());
 
             string filter = args != null && args.Length > 0 ? args[0] : null;
             if (!string.IsNullOrEmpty(filter))

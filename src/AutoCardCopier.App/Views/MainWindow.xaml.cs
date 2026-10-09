@@ -27,6 +27,29 @@ namespace AutoCardCopier.App.Views
             DataContext = _viewModel;
 
             RestoreWindowState();
+
+            // 托盘：关闭窗口时默认隐藏到托盘，真正退出需要通过托盘菜单
+            if (_services.Settings.MinimizeToTray)
+            {
+                _services.Tray = new TrayNotifier(ShowFromTray, ExitApplication);
+            }
+        }
+
+        /// <summary>从托盘恢复主窗口。</summary>
+        public void ShowFromTray()
+        {
+            Show();
+            WindowState = WindowState.Normal;
+            Activate();
+            Topmost = true;
+            Topmost = false;
+        }
+
+        /// <summary>真正退出程序。</summary>
+        private void ExitApplication()
+        {
+            _services.IsExiting = true;
+            Close();
         }
 
         protected override void OnSourceInitialized(EventArgs e)
@@ -103,6 +126,16 @@ namespace AutoCardCopier.App.Views
         protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
         {
             SaveWindowState();
+
+            // 关闭窗口时如果开启了托盘且不是真正退出，则隐藏窗口
+            if (_services.Settings.MinimizeToTray && !_services.IsExiting && _services.Tray != null)
+            {
+                e.Cancel = true;
+                Hide();
+                _services.Notify("自动拷卡助手仍在运行", "程序已最小化到托盘，拷卡任务不受影响。双击托盘图标可重新打开。");
+                return;
+            }
+
             base.OnClosing(e);
         }
     }

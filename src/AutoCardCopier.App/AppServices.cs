@@ -59,6 +59,12 @@ namespace AutoCardCopier.App
         /// <summary>任务历史。</summary>
         public TaskHistoryStore TaskHistory { get; private set; }
 
+        /// <summary>托盘与通知（由主窗口在启动时注入）。</summary>
+        public TrayNotifier Tray { get; set; }
+
+        /// <summary>是否正在退出程序（用于区分“关闭窗口”与“退出”）。</summary>
+        public bool IsExiting { get; set; }
+
         /// <summary>程序版本号。</summary>
         public static string VersionText
         {
@@ -150,9 +156,20 @@ namespace AutoCardCopier.App
             return false;
         }
 
+        /// <summary>弹出完成/失败通知（没有托盘时静默忽略）。</summary>
+        public void Notify(string title, string message)
+        {
+            if (Tray != null) { Tray.ShowInfo(title, message); }
+        }
+
         /// <summary>释放资源。</summary>
         public void Shutdown()
         {
+            if (Tray != null)
+            {
+                Tray.Dispose();
+                Tray = null;
+            }
             if (CardDetector != null)
             {
                 CardDetector.Dispose();
