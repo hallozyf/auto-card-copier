@@ -40,7 +40,9 @@ namespace AutoCardCopier.Core.Scanning
         private static readonly HashSet<string> VideoExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
             ".mp4", ".mov", ".mxf", ".braw", ".r3d", ".mts", ".m2ts", ".avi", ".mkv",
-            ".mpg", ".mpeg", ".wmv", ".insv", ".lrv", ".crm", ".m4v", ".3gp", ".vob", ".mod"
+            ".mpg", ".mpeg", ".wmv", ".insv", ".lrv", ".crm", ".m4v", ".3gp", ".vob", ".mod",
+            // 补充：HDV / JVC / DV / 流媒体等常见容器（老式摄像机与部分运动相机）
+            ".ts", ".m2t", ".m2p", ".tod", ".dv", ".flv", ".webm", ".asf", ".divx"
         };
 
         /// <summary>系统垃圾文件（始终忽略）。</summary>

@@ -37,10 +37,27 @@ namespace AutoCardCopier.Core.Devices
         public CardIdentity Identity { get; set; }
 
         /// <summary>卡上识别到的素材根目录（例如卡根下的 DCIM）；没有则为空。</summary>
-        public string MediaRootPath { get; set; }
+        public string MediaRootPath { get { return FirstMediaRootPath(); } }
+
+        /// <summary>
+        /// 卡上识别到的**全部**素材根目录（绝对路径）。
+        /// 一张卡可能同时有 DCIM（照片）与 PRIVATE、AVCHD（视频）；
+        /// 早期版本只记录第一个目录，导致视频目录整段被跳过，因此必须保留全部。
+        /// </summary>
+        public IList<string> MediaRootPaths { get; set; }
+
+        /// <summary>推荐的扫描入口：始终是卡片根目录，由扫描器决定遍历哪些子目录。</summary>
+        public string ScanRootPath { get { return RootPath; } }
 
         /// <summary>识别到的特征目录名称列表（DCIM、M4ROOT 等）。</summary>
         public IList<string> MediaFolderNames { get; set; }
+
+        /// <summary>取第一个素材根（兼容旧调用）。</summary>
+        private string FirstMediaRootPath()
+        {
+            if (MediaRootPaths != null && MediaRootPaths.Count > 0) { return MediaRootPaths[0]; }
+            return RootPath;
+        }
 
         /// <summary>识别为卡片的原因（用于界面解释与日志）。</summary>
         public string DetectionReason { get; set; }

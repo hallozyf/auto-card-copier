@@ -21,6 +21,7 @@ namespace AutoCardCopier.Tests
             runner.AddRange("拷贝与校验", CopyingTests.Cases());
             runner.AddRange("项目库与历史", LibraryTests.Cases());
             runner.AddRange("格式化护栏", FormatTests.Cases());
+            runner.AddRange("BUG-001 回归(视频漏扫)", Bug001RegressionTests.Cases());
 
             string filter = args != null && args.Length > 0 ? args[0] : null;
             if (!string.IsNullOrEmpty(filter))

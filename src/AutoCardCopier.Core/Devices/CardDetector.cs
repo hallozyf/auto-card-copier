@@ -27,7 +27,9 @@ namespace AutoCardCopier.Core.Devices
         /// <summary>常见的相机卡特征目录（不区分大小写）。</summary>
         private static readonly string[] MediaFolderCandidates =
         {
-            "DCIM", "M4ROOT", "AVCHD", "XDROOT", "PRIVATE", "BMD", "CANON", "NIKON"
+            "DCIM", "M4ROOT", "AVCHD", "XDROOT", "PRIVATE", "BMD", "CANON", "NIKON",
+            // 补充：专业摄像机（佳能 XF 的 CONTENTS）、老机型（MP_ROOT）与自建素材目录
+            "CONTENTS", "MP_ROOT", "VIDEO", "MOVIE", "CLIP"
         };
 
         /// <summary>常见相机卡卷标关键字，用于辅助判定。</summary>
@@ -197,11 +199,22 @@ namespace AutoCardCopier.Core.Devices
                 FreeBytes = volume.FreeBytes,
                 Identity = CardIdentity.FromVolume(volume),
                 MediaFolderNames = mediaFolders,
-                MediaRootPath = mediaFolders.Count > 0 ? Infrastructure.PathUtil.Combine(root, mediaFolders[0]) : root,
+                MediaRootPaths = BuildMediaRootPaths(root, mediaFolders),
                 DetectionReason = reason,
                 IsReady = volume.TotalBytes > 0
             };
             return card;
+        }
+
+        /// <summary>把识别到的特征目录名转换成绝对路径列表。</summary>
+        private static IList<string> BuildMediaRootPaths(string root, IList<string> folderNames)
+        {
+            var paths = new List<string>();
+            if (folderNames != null)
+            {
+                foreach (string name in folderNames) { paths.Add(Infrastructure.PathUtil.Combine(root, name)); }
+            }
+            return paths;
         }
 
         /// <summary>在卡根目录下查找相机素材目录。</summary>

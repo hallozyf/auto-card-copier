@@ -21,7 +21,9 @@ namespace AutoCardCopier.Core.Scanning
         /// <summary>已知的相机素材根目录名（不区分大小写）。</summary>
         private static readonly string[] MediaRootCandidates =
         {
-            "DCIM", "M4ROOT", "AVCHD", "XDROOT", "PRIVATE", "BMD"
+            "DCIM", "M4ROOT", "AVCHD", "XDROOT", "PRIVATE", "BMD",
+            // 补充：佳能 XF 的 CONTENTS、老机型 MP_ROOT、以及常见的自建素材目录
+            "CONTENTS", "MP_ROOT", "VIDEO", "MOVIE", "CLIP"
         };
 
         private readonly ILog _log;
@@ -47,7 +49,9 @@ namespace AutoCardCopier.Core.Scanning
             var result = new ScanResult { RootPath = cardRootPath };
             var ignoreSet = BuildIgnoreSet(settings);
 
-            IList<string> roots = ResolveScanRoots(cardRootPath);
+            IList<string> roots = ResolveScanRoots(cardRootPath, settings);
+            result.ScannedRoots = new List<string>(roots);
+            _log.Info("扫描范围（" + roots.Count + " 个顶层目录）：" + string.Join("、", roots));
             var pending = new Stack<string>();
             // 逆序压栈，保证扫描顺序与目录顺序一致（更符合直觉，也便于观察进度）
             for (int i = roots.Count - 1; i >= 0; i--) { pending.Push(roots[i]); }
@@ -63,7 +67,7 @@ namespace AutoCardCopier.Core.Scanning
 
                 string[] subDirectories;
                 string[] files;
-                if (!TryEnumerate(directory, out subDirectories, out files))
+                if (!TryEnumerateDirectory(directory, out subDirectories, out files))
                 {
                     result.SkippedCount++;
                     continue;
@@ -150,19 +154,60 @@ namespace AutoCardCopier.Core.Scanning
             return result;
         }
 
-        /// <summary>决定从哪些目录开始扫描：优先已知素材目录，找不到则扫卡根。</summary>
-        private static IList<string> ResolveScanRoots(string cardRootPath)
+        /// <summary>
+        /// 决定从哪些目录开始扫描。
+        ///
+        /// 修复 BUG-001：早期实现"命中第一个特征目录就不再扫描其它目录"，
+        /// 导致"照片在 DCIM、视频在 PRIVATE/AVCHD/CONTENTS"的卡漏扫全部视频。
+        /// 现在改为：特征目录全部纳入 + （可选）卡根下的其它非忽略目录也纳入；
+        /// 一个特征目录都没有时才直接扫描卡根。
+        /// </summary>
+        public static IList<string> ResolveScanRoots(string cardRootPath, AppSettings settings)
         {
             var roots = new List<string>();
+            var added = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
             foreach (string candidate in MediaRootCandidates)
             {
                 string path = Path.Combine(cardRootPath, candidate);
                 try
                 {
-                    if (Directory.Exists(path)) { roots.Add(path); }
+                    if (Directory.Exists(path) && added.Add(path)) { roots.Add(path); }
                 }
                 catch (Exception)
                 {
+                }
+            }
+
+            // 扫描卡根下的其它目录：相机可能把素材放在非标准目录里，漏扫意味着素材不会被备份
+            if (settings == null || settings.ScanWholeCardRoot)
+            {
+                var ignored = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                ignored.Add("System Volume Information");
+                ignored.Add("$RECYCLE.BIN");
+                ignored.Add(".Trashes");
+                ignored.Add(".Spotlight-V100");
+                ignored.Add(".fseventsd");
+                if (settings != null && settings.IgnoredDirectories != null)
+                {
+                    foreach (string name in settings.IgnoredDirectories)
+                    {
+                        if (!string.IsNullOrWhiteSpace(name)) { ignored.Add(name.Trim()); }
+                    }
+                }
+
+                try
+                {
+                    foreach (string directory in Directory.GetDirectories(cardRootPath))
+                    {
+                        string name = Path.GetFileName(directory);
+                        if (string.IsNullOrEmpty(name) || ignored.Contains(name)) { continue; }
+                        if (added.Add(directory)) { roots.Add(directory); }
+                    }
+                }
+                catch (Exception)
+                {
+                    // 卡根枚举失败时不影响已找到的特征目录
                 }
             }
 
@@ -171,7 +216,7 @@ namespace AutoCardCopier.Core.Scanning
         }
 
         /// <summary>枚举目录内容，遇到权限或 IO 异常时返回 false。</summary>
-        private static bool TryEnumerate(string directory, out string[] subDirectories, out string[] files)
+        public static bool TryEnumerateDirectory(string directory, out string[] subDirectories, out string[] files)
         {
             subDirectories = new string[0];
             files = new string[0];

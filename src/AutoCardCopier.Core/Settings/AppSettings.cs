@@ -156,6 +156,13 @@ namespace AutoCardCopier.Core.Settings
         [DataMember(Name = "autoFormatCountdownSec", Order = 34)]
         public int AutoFormatCountdownSec { get; set; }
 
+        /// <summary>
+        /// 是否同时扫描卡根下的其它目录（特征目录与忽略目录之外的目录）。
+        /// 默认开启：相机可能把视频放在非标准目录，漏扫会导致素材没有被拷贝。
+        /// </summary>
+        [DataMember(Name = "scanWholeCardRoot", Order = 35)]
+        public bool ScanWholeCardRoot { get; set; }
+
         // ---------- 界面 ----------
 
         /// <summary>主题。</summary>
@@ -211,6 +218,7 @@ namespace AutoCardCopier.Core.Settings
                 VerifyLevel = VerifyLevel.SizeAndSample,
                 VerifyVideo = true,
                 RequireDcimFolder = false,
+                ScanWholeCardRoot = true,
                 IgnoredDirectories = new[]
                 {
                     "System Volume Information", "$RECYCLE.BIN", ".Trashes", ".Spotlight-V100", ".fseventsd"

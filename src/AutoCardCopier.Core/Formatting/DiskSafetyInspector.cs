@@ -60,7 +60,12 @@ namespace AutoCardCopier.Core.Formatting
         /// <param name="driveRoot">盘符根路径，例如 E: 加反斜杠。</param>
         /// <param name="hasVerifiedCopy">本次是否已经完成"拷贝 + 校验通过"。</param>
         /// <param name="log">日志。</param>
-        public static DiskSafetyReport Inspect(string driveRoot, bool hasVerifiedCopy, ILog log)
+        /// <param name="uncoveredMediaCount">
+        /// 卡上仍未被本次拷贝覆盖的素材文件数量（由 CoverageChecker 计算）。
+        /// 大于 0 时一律拒绝格式化——这是 BUG-001 的机制性兜底，
+        /// 防止"漏扫 → 漏拷 → 校验却通过 → 格式化"造成永久数据丢失。
+        /// </param>
+        public static DiskSafetyReport Inspect(string driveRoot, bool hasVerifiedCopy, ILog log, int uncoveredMediaCount = 0)
         {
             var report = new DiskSafetyReport
             {
@@ -151,9 +156,28 @@ namespace AutoCardCopier.Core.Formatting
                 return report;
             }
 
+            // 规则 6：卡上不能还有未被本次拷贝覆盖的素材
+            string coverageReason = CheckCoverageRule(uncoveredMediaCount);
+            if (coverageReason != null)
+            {
+                report.Reason = coverageReason;
+                return report;
+            }
+
             report.CanFormat = true;
             report.Reason = "安全检查通过：" + report.Description;
             return report;
+        }
+
+        /// <summary>
+        /// 规则 6（BUG-001 兜底）：卡上若还有本次未纳入拷贝的素材，则禁止格式化。
+        /// 抽成纯函数便于单元测试，避免这条规则因为环境限制（例如测试机没有 USB 卡）而无法验证。
+        /// </summary>
+        /// <returns>允许时为 null，否则返回拒绝原因。</returns>
+        public static string CheckCoverageRule(int uncoveredMediaCount)
+        {
+            if (uncoveredMediaCount <= 0) { return null; }
+            return string.Format("卡上还有 {0} 个素材未被本次拷贝覆盖，已拒绝格式化（请先完成这些素材的拷贝）", uncoveredMediaCount);
         }
 
         /// <summary>通过 WMI 关联找到盘符对应的物理磁盘。</summary>

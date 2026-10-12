@@ -44,10 +44,14 @@ namespace AutoCardCopier.Core.Scanning
         public ScanResult()
         {
             Files = new List<ScannedFile>();
+            ScannedRoots = new List<string>();
         }
 
-        /// <summary>被扫描的卡片素材根目录。</summary>
+        /// <summary>被扫描的卡片根目录。</summary>
         public string RootPath { get; set; }
+
+        /// <summary>本次实际遍历的顶层目录（用于界面显示与日志留痕，便于排查"漏扫"）。</summary>
+        public IList<string> ScannedRoots { get; set; }
 
         /// <summary>全部素材文件（不含被忽略的文件）。</summary>
         public IList<ScannedFile> Files { get; set; }

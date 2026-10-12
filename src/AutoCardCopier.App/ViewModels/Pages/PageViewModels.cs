@@ -388,6 +388,9 @@ namespace AutoCardCopier.App.ViewModels.Pages
         /// <summary>最近一次校验通过的卡片指纹（供后续格式化护栏使用）。</summary>
         public string LastVerifiedCardFingerprint { get; private set; }
 
+        /// <summary>最近一次扫描覆盖率检查结果。</summary>
+        private CoverageReport _lastCoverage;
+
         // ---------- 任务历史与续传提示 ----------
 
         private string _currentTaskId;
@@ -418,15 +421,19 @@ namespace AutoCardCopier.App.ViewModels.Pages
 
         /// <summary>
         /// 是否可以对该卡片执行格式化或清空。
-        /// 只有"本次拷贝并校验通过的那一张卡"才会解锁，这是不可绕过的安全前提。
+        /// 三个前提缺一不可：
+        /// 1. 是"本次拷贝并校验通过的那一张卡"；
+        /// 2. 卡上不存在"未被本次拷贝覆盖"的素材（BUG-001 的机制性兜底）；
+        /// 3. 当前没有正在进行的任务。
         /// </summary>
         public bool CanFormatCard
         {
             get
             {
                 if (SelectedCard == null || IsCopying || IsBusy) { return false; }
-                return LastVerifiedCardFingerprint != null
-                       && LastVerifiedCardFingerprint == SelectedCard.Card.Identity.Fingerprint;
+                if (LastVerifiedCardFingerprint == null
+                    || LastVerifiedCardFingerprint != SelectedCard.Card.Identity.Fingerprint) { return false; }
+                return _lastCoverage == null || _lastCoverage.FullyCovered;
             }
         }
 
@@ -436,15 +443,39 @@ namespace AutoCardCopier.App.ViewModels.Pages
             get
             {
                 if (SelectedCard == null) { return "请先选择一张存储卡。"; }
-                if (CanFormatCard) { return "本次拷贝与校验已完成，可以安全格式化这张卡片。"; }
-                return "仅当本次拷贝并校验通过后，才可以对这张卡片执行格式化或清空。";
+                if (CanFormatCard) { return "本次拷贝与校验已完成，且卡上素材已全部覆盖，可以安全格式化这张卡片。"; }
+                if (_lastCoverage != null && !_lastCoverage.FullyCovered)
+                {
+                    return "已暂停格式化解锁：" + _lastCoverage.Message + "。请重新扫描并完成这些素材的拷贝。";
+                }
+                return "仅当本次拷贝并校验通过、且卡上素材全部被覆盖后，才可以对这张卡片执行格式化或清空。";
             }
+        }
+
+        /// <summary>扫描范围文本（显示本次实际遍历的顶层目录，便于发现漏扫）。</summary>
+        public string ScanScopeText
+        {
+            get
+            {
+                if (_scanResult == null || _scanResult.ScannedRoots == null || _scanResult.ScannedRoots.Count == 0)
+                {
+                    return "-";
+                }
+                return string.Join("、" + System.Environment.NewLine, _scanResult.ScannedRoots);
+            }
+        }
+
+        /// <summary>覆盖率检查结果文本。</summary>
+        public string CoverageText
+        {
+            get { return _lastCoverage == null ? "-" : _lastCoverage.Message; }
         }
 
         private void RefreshFormatState()
         {
             RaisePropertyChanged("CanFormatCard");
             RaisePropertyChanged("FormatHintText");
+            RaisePropertyChanged("CoverageText");
             if (FormatCardCommand != null) { FormatCardCommand.RaiseCanExecuteChanged(); }
             if (EraseCardCommand != null) { EraseCardCommand.RaiseCanExecuteChanged(); }
         }
@@ -475,7 +506,7 @@ namespace AutoCardCopier.App.ViewModels.Pages
             StatusText = "正在格式化卡片，请勿拔出…";
             var formatter = new CardFormatter(_log);
             FormatResult result = formatter.Format(item.Card.RootPath, Services.Settings.FormatFileSystem,
-                item.Card.VolumeLabel, verified);
+                item.Card.VolumeLabel, verified, _lastCoverage == null ? 0 : _lastCoverage.UncoveredMediaFiles);
 
             StatusText = result.Message;
             Services.Notify(result.Success ? "卡片格式化完成" : "卡片格式化失败", result.Message);
@@ -498,10 +529,24 @@ namespace AutoCardCopier.App.ViewModels.Pages
                 "确认清空卡片", MessageBoxButton.OKCancel, MessageBoxImage.Warning, MessageBoxResult.Cancel);
             if (answer != MessageBoxResult.OK) { StatusText = "已取消清空操作。"; return; }
 
-            string root = string.IsNullOrEmpty(item.Card.MediaRootPath) ? item.Card.RootPath : item.Card.MediaRootPath;
+            // 修复 BUG-001：清空要覆盖全部素材根（照片与视频可能分处不同顶层目录）
+            var roots = new List<string>();
+            if (item.Card.MediaRootPaths != null && item.Card.MediaRootPaths.Count > 0)
+            {
+                foreach (string path in item.Card.MediaRootPaths) { roots.Add(path); }
+            }
+            if (roots.Count == 0) { roots.Add(item.Card.RootPath); }
+
             StatusText = "正在清空卡片…";
             var formatter = new CardFormatter(_log);
-            FormatResult result = formatter.EraseFiles(root, true, null, CancellationToken.None);
+            FormatResult result = null;
+            foreach (string root in roots)
+            {
+                FormatResult one = formatter.EraseFiles(root, true, null, CancellationToken.None);
+                if (result == null) { result = one; }
+                else if (!one.Success) { result = one; }
+            }
+            if (result == null) { result = new FormatResult { Success = false, Message = "没有可清空的素材目录" }; }
 
             StatusText = result.Message;
             Services.Notify(result.Success ? "卡片已清空" : "清空卡片失败", result.Message);
@@ -594,7 +639,9 @@ namespace AutoCardCopier.App.ViewModels.Pages
 
             try
             {
-                string root = string.IsNullOrEmpty(item.Card.MediaRootPath) ? item.Card.RootPath : item.Card.MediaRootPath;
+                // 修复 BUG-001：始终从卡根开始扫描，由扫描器遍历全部特征目录与其它目录，
+                // 不再只盯着“第一个特征目录”（否则视频在 PRIVATE/AVCHD 时会被整段跳过）
+                string root = item.Card.ScanRootPath;
                 var progress = new Progress<ScanProgress>(delegate (ScanProgress value)
                 {
                     ProgressText = string.Format("{0}：{1} 个文件，{2}", value.Phase,
@@ -639,6 +686,8 @@ namespace AutoCardCopier.App.ViewModels.Pages
             RaisePropertyChanged("CameraModelText");
             RaisePropertyChanged("ContentSummaryText");
             RaisePropertyChanged("SkippedText");
+            RaisePropertyChanged("ScanScopeText");
+            RaisePropertyChanged("CoverageText");
             RaisePropertyChanged("TargetPreviewText");
             RaisePropertyChanged("CanStartCopy");
         }
@@ -899,15 +948,30 @@ namespace AutoCardCopier.App.ViewModels.Pages
                 Services.Presets.RememberLocation(context.Location);
                 if (!Locations.Contains(context.Location)) { Locations.Insert(0, context.Location); }
 
-                LastVerifiedCardFingerprint = report.AllPassed && report.Level != VerifyLevel.None
+                // 6.5 覆盖率检查（BUG-001 兜底）：确认卡上不存在"本次没有纳入拷贝"的素材
+                StatusText = "正在检查卡上是否还有未被拷贝的素材…";
+                CoverageReport coverage = await Task.Run(delegate
+                {
+                    var copiedPaths = new List<string>();
+                    foreach (CopyItem planItem in plan.Items) { copiedPaths.Add(planItem.Source.FullPath); }
+                    return CoverageChecker.Check(item.Card.ScanRootPath, settings, copiedPaths, _log, CancellationToken.None);
+                });
+                _lastCoverage = coverage;
+                if (!coverage.FullyCovered)
+                {
+                    failures.Add("⚠️ " + coverage.Message + "；已锁定格式化，请重新扫描后再次拷贝。");
+                    foreach (string sample in coverage.Samples) { failures.Add("    未拷贝：" + sample); }
+                }
+
+                LastVerifiedCardFingerprint = report.AllPassed && report.Level != VerifyLevel.None && coverage.FullyCovered
                     ? item.Card.Identity.Fingerprint
                     : null;
 
-                ResultSummary = string.Format("{0}；拷贝 {1} 个文件（{2}），耗时 {3}，平均 {4}；{5}",
+                ResultSummary = string.Format("{0}；拷贝 {1} 个文件（{2}），耗时 {3}，平均 {4}；{5}；{6}",
                     report.AllPassed ? "✅ 拷贝与校验全部通过" : "⚠️ 校验存在问题",
                     Humanize.Count(copyResult.CopiedFiles), Humanize.Bytes(copyResult.CopiedBytes),
                     Humanize.Duration(copyResult.Duration), Humanize.Speed(copyResult.AverageBytesPerSecond),
-                    report.Summary);
+                    report.Summary, coverage.Message);
                 HasResult = true;
                 StatusText = "项目目录：" + plan.ProjectDirectory;
                 RefreshFormatState();
@@ -953,6 +1017,7 @@ namespace AutoCardCopier.App.ViewModels.Pages
         private int _maxParallelism;
         private VerifyLevel _verifyLevel;
         private bool _verifyVideo;
+        private bool _scanWholeCardRoot;
         private bool _autoFormatAfterVerify;
         private int _autoFormatCountdownSec;
         private ThemeMode _theme;
@@ -1001,6 +1066,7 @@ namespace AutoCardCopier.App.ViewModels.Pages
             _maxParallelism = settings.MaxParallelism;
             _verifyLevel = settings.VerifyLevel;
             _verifyVideo = settings.VerifyVideo;
+            _scanWholeCardRoot = settings.ScanWholeCardRoot;
             _autoFormatAfterVerify = settings.AutoFormatAfterVerify;
             _autoFormatCountdownSec = settings.AutoFormatCountdownSec;
             _theme = settings.Theme;
@@ -1059,6 +1125,13 @@ namespace AutoCardCopier.App.ViewModels.Pages
         {
             get { return _verifyVideo; }
             set { SetProperty(ref _verifyVideo, value); }
+        }
+
+        /// <summary>是否扫描卡根下的其它目录（修复 BUG-001 的开关，默认开启）。</summary>
+        public bool ScanWholeCardRoot
+        {
+            get { return _scanWholeCardRoot; }
+            set { SetProperty(ref _scanWholeCardRoot, value); }
         }
 
         public bool AutoFormatAfterVerify
@@ -1138,6 +1211,7 @@ namespace AutoCardCopier.App.ViewModels.Pages
             settings.MaxParallelism = MaxParallelism;
             settings.VerifyLevel = SelectedVerifyLevel;
             settings.VerifyVideo = VerifyVideo;
+            settings.ScanWholeCardRoot = ScanWholeCardRoot;
             settings.AutoFormatAfterVerify = AutoFormatAfterVerify;
             settings.AutoFormatCountdownSec = AutoFormatCountdownSec;
             settings.Theme = SelectedTheme;

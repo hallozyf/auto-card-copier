@@ -65,6 +65,8 @@
         <Border Style="{StaticResource CardBorder}">
           <StackPanel>
             <TextBlock Text="卡片与格式化" Style="{StaticResource SectionTitleText}" />
+            <CheckBox Style="{StaticResource AppCheckBox}" Content="扫描卡根下的所有目录（推荐开启：相机可能把视频放在非标准目录里）"
+                      IsChecked="{Binding ScanWholeCardRoot, Mode=TwoWay}" />
             <CheckBox Style="{StaticResource AppCheckBox}" Content="校验通过后自动格式化卡片（默认关闭，强烈建议保持关闭）"
                       IsChecked="{Binding AutoFormatAfterVerify, Mode=TwoWay}" />
             <TextBlock Text="自动格式化倒计时（秒）" Style="{StaticResource SecondaryText}" Margin="0,6,0,0" />

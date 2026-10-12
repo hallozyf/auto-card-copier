@@ -52,9 +52,10 @@ namespace AutoCardCopier.Core.Formatting
         /// <param name="option">文件系统选择。</param>
         /// <param name="label">卷标；为空表示沿用原卷标。</param>
         /// <param name="hasVerifiedCopy">是否已完成拷贝 + 校验。</param>
-        public FormatResult Format(string driveRoot, FormatFileSystem option, string label, bool hasVerifiedCopy)
+        /// <param name="uncoveredMediaCount">卡上未被本次拷贝覆盖的素材数量（大于 0 时拒绝格式化）。</param>
+        public FormatResult Format(string driveRoot, FormatFileSystem option, string label, bool hasVerifiedCopy, int uncoveredMediaCount = 0)
         {
-            DiskSafetyReport safety = DiskSafetyInspector.Inspect(driveRoot, hasVerifiedCopy, _log);
+            DiskSafetyReport safety = DiskSafetyInspector.Inspect(driveRoot, hasVerifiedCopy, _log, uncoveredMediaCount);
             if (!safety.CanFormat)
             {
                 _log.Warn("格式化被安全护栏拒绝：" + safety.Reason);

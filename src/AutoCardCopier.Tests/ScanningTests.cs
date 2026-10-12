@@ -56,11 +56,13 @@ namespace AutoCardCopier.Tests
                     var scanner = new MediaScanner(NullLog.Instance);
                     ScanResult result = scanner.Scan(temp.Path, AppSettings.CreateDefault(), null, CancellationToken.None);
 
+                    // 修复 BUG-001 后，卡根下的 MISC 目录也会被扫描（不再只盯着特征目录），
+                    // 因此"其他文件"由 1 个变为 2 个（DCIM 内的 XMP 与 MISC 内的 XMP）
                     Assert.Equal(5, result.PhotoCount);
                     Assert.Equal(2, result.VideoCount);
-                    Assert.Equal(1, result.OtherCount);
-                    Assert.Equal(8, result.TotalCount);
-                    Assert.Equal(5 * 2048L + 2 * 8192L + 128L, result.TotalBytes);
+                    Assert.Equal(2, result.OtherCount);
+                    Assert.Equal(9, result.TotalCount);
+                    Assert.Equal(5 * 2048L + 2 * 8192L + 256L, result.TotalBytes);
                     Assert.True(result.SkippedCount >= 1, "0 字节文件应被跳过，实际跳过 " + result.SkippedCount);
                     Assert.True(result.HasPhoto && result.HasVideo);
                     Assert.Equal("照片 + 视频", result.ContentSummary);
