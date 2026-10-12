@@ -87,9 +87,6 @@ namespace AutoCardCopier.Core.Infrastructure
         /// <summary>任务历史文件路径。</summary>
         public static string HistoryFile(string dataDirectory) { return Path.Combine(dataDirectory, "history.json"); }
 
-        /// <summary>断点续传计划文件目录。</summary>
-        public static string PlanDirectory(string dataDirectory) { return Path.Combine(dataDirectory, "tasks"); }
-
         /// <summary>
         /// 判断目录是否可写：尝试创建目录并写入一个探测文件后立即删除。
         /// </summary>

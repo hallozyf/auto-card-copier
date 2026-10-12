@@ -23,13 +23,6 @@ namespace AutoCardCopier.Core.Copying
         public TimeSpan Remaining { get; set; }
         public bool IsPaused { get; set; }
 
-        /// <summary>当前写入的目标（多目标备份时用于区分主目标与副目标）。</summary>
-        public string TargetLabel { get; set; }
-
-        /// <summary>当前目标序号（从 1 开始）与目标总数。</summary>
-        public int TargetIndex { get; set; }
-        public int TargetCount { get; set; }
-
         /// <summary>完成比例（0 至 1）。</summary>
         public double Ratio
         {
@@ -51,8 +44,6 @@ namespace AutoCardCopier.Core.Copying
         public CopyResult()
         {
             Failures = new List<CopyFailure>();
-            CompletedTargetPaths = new List<string>();
-            FailedTargetPaths = new List<string>();
         }
 
         public int CopiedFiles { get; set; }
@@ -61,25 +52,6 @@ namespace AutoCardCopier.Core.Copying
         public long CopiedBytes { get; set; }
         public TimeSpan Duration { get; set; }
         public IList<CopyFailure> Failures { get; set; }
-
-        /// <summary>成功写入的目标文件完整路径（用于精确断点续传的进度记录）。</summary>
-        public IList<string> CompletedTargetPaths { get; private set; }
-
-        /// <summary>写入失败的目标文件完整路径。</summary>
-        public IList<string> FailedTargetPaths { get; private set; }
-
-        /// <summary>初始化逐文件路径集合。</summary>
-        public void EnsurePathCollections()
-        {
-            if (CompletedTargetPaths == null)
-            {
-                CompletedTargetPaths = new System.Collections.Generic.List<string>();
-            }
-            if (FailedTargetPaths == null)
-            {
-                FailedTargetPaths = new System.Collections.Generic.List<string>();
-            }
-        }
         public bool Cancelled { get; set; }
 
         /// <summary>是否全部成功。</summary>
@@ -191,7 +163,6 @@ namespace AutoCardCopier.Core.Copying
                                     long now = Interlocked.Add(ref completedBytes, delta);
                                     report(Path.GetFileName(captured.Source.FullPath), now);
                                 });
-                                lock (result.CompletedTargetPaths) { result.CompletedTargetPaths.Add(captured.TargetPath); }
                                 Interlocked.Increment(ref completedFiles);
                                 report(Path.GetFileName(captured.Source.FullPath), Interlocked.Read(ref completedBytes));
                             }
@@ -209,7 +180,6 @@ namespace AutoCardCopier.Core.Copying
                                         TargetPath = captured.TargetPath,
                                         Error = ex.Message
                                     });
-                                    result.FailedTargetPaths.Add(captured.TargetPath);
                                 }
                                 _log.Error("拷贝失败：" + captured.Source.FullPath, ex);
                             }
