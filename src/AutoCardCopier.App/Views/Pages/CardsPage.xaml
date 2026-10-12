@@ -34,6 +34,7 @@
           <Button Content="刷新" Style="{StaticResource SecondaryButton}" Command="{Binding RefreshCommand}" Margin="0,0,8,0" />
           <Button Content="扫描素材" Style="{StaticResource SecondaryButton}" Command="{Binding ScanCommand}" Margin="0,0,8,0" />
           <Button Content="开始拷贝" Style="{StaticResource PrimaryButton}" Command="{Binding StartCopyCommand}" Margin="0,0,8,0" />
+          <Button Content="继续上次任务" Style="{StaticResource SecondaryButton}" Command="{Binding ResumeCommand}" Margin="0,0,8,0" />
           <Button Content="{Binding PauseButtonText}" Style="{StaticResource SecondaryButton}" Command="{Binding PauseResumeCommand}" Margin="0,0,8,0" />
           <Button Content="取消" Style="{StaticResource SecondaryButton}" Command="{Binding CancelCopyCommand}" />
         </StackPanel>

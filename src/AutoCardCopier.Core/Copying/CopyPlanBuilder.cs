@@ -1,7 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using AutoCardCopier.Core.Devices;
+using System.Threading;
+using System.Threading.Tasks;
 using AutoCardCopier.Core.Infrastructure;
 using AutoCardCopier.Core.Logging;
 using AutoCardCopier.Core.Projects;
@@ -11,8 +12,13 @@ using AutoCardCopier.Core.Settings;
 namespace AutoCardCopier.Core.Copying
 {
     /// <summary>
-    /// 拷贝计划生成器：负责"把扫描结果变成一份可执行的拷贝计划"，并做执行前的预检。
-    /// 这里是自动化建目录的核心——用户不再需要手工创建任何文件夹。
+    /// 拷贝计划生成器：把扫描结果变成可执行的拷贝计划，并做执行前的目标检查。
+    ///
+    /// BUG-002 修复要点（后续改动必须遵守的约束）：
+    /// 1. Build 不做任何文件系统访问，纯内存计算，可安全地在任何线程调用；
+    /// 2. 目录冲突判断放到 ResolveProjectDirectory，由调用方在后台线程执行；
+    /// 3. 目标可用性检查放到 PreflightAsync，内部使用带超时的后台探测；
+    /// 4. "目标已存在则跳过"的判断移到拷贝工作线程（CopyEngine），计划阶段不再逐文件探测。
     /// </summary>
     public sealed class CopyPlanBuilder
     {
@@ -27,14 +33,14 @@ namespace AutoCardCopier.Core.Copying
         }
 
         /// <summary>
-        /// 生成拷贝计划。
+        /// 生成拷贝计划（纯内存计算，不访问文件系统）。
         /// </summary>
-        /// <param name="scan">素材扫描结果。</param>
-        /// <param name="settings">设置。</param>
-        /// <param name="context">拍摄项目上下文（日期、类型、地点等）。</param>
-        /// <param name="targetRoot">目标根目录。</param>
+        /// <param name="resolvedProjectDirectory">
+        /// 已经过冲突处理的项目目录（由 ResolveProjectDirectory 在后台线程算好）；
+        /// 传 null 表示直接按模板拼接，不做冲突检查。
+        /// </param>
         public OperationResult<CopyPlan> Build(ScanResult scan, AppSettings settings,
-            ProjectContext context, string targetRoot)
+            ProjectContext context, string targetRoot, string resolvedProjectDirectory = null)
         {
             if (scan == null) { return OperationResult.Fail<CopyPlan>("尚未扫描素材"); }
             if (settings == null) { settings = AppSettings.CreateDefault(); }
@@ -49,27 +55,25 @@ namespace AutoCardCopier.Core.Copying
                     TargetRoot = targetRoot
                 };
 
-                // 1. 展开命名模板并处理目录冲突
                 string relative = NameTemplateEngine.ToWindowsRelativePath(
                     NameTemplateEngine.Expand(settings.NameTemplate, context));
                 string projectName = relative;
                 int lastSeparator = relative.LastIndexOf(Path.DirectorySeparatorChar);
                 if (lastSeparator >= 0) { projectName = relative.Substring(lastSeparator + 1); }
 
-                string projectDirectory = Path.Combine(targetRoot, relative);
-                projectDirectory = ResolveConflict(projectDirectory, settings.ConflictPolicy, plan.Warnings);
+                string projectDirectory = string.IsNullOrWhiteSpace(resolvedProjectDirectory)
+                    ? Path.Combine(targetRoot, relative)
+                    : resolvedProjectDirectory;
 
                 plan.ProjectRelativePath = MakeRelativePath(targetRoot, projectDirectory);
                 plan.ProjectDirectory = projectDirectory;
                 plan.ProjectName = projectName;
 
-                // 2. 目标目录绝不能位于源目录内部（否则会自我递归）
                 if (PathUtil.IsSubPathOf(scan.RootPath, projectDirectory))
                 {
                     return OperationResult.Fail<CopyPlan>("目标目录位于源卡片内部：" + projectDirectory);
                 }
 
-                // 3. 逐文件规划目标路径
                 var usedTargets = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 foreach (ScannedFile file in scan.Files)
                 {
@@ -79,22 +83,14 @@ namespace AutoCardCopier.Core.Copying
                         ? Path.Combine(projectDirectory, fileName)
                         : Path.Combine(Path.Combine(projectDirectory, subFolder.Replace('/', Path.DirectorySeparatorChar)), fileName);
 
-                    // 同一批文件内部也可能重名（不同子目录的同名文件被归并到同一目录）
                     targetPath = EnsureUniqueTarget(targetPath, usedTargets);
 
-                    var item = new CopyItem
+                    plan.Items.Add(new CopyItem
                     {
                         Source = file,
                         TargetPath = targetPath,
                         Action = CopyAction.Copy
-                    };
-
-                    if (ShouldSkipExisting(item, settings))
-                    {
-                        item.Action = CopyAction.Skip;
-                        item.SkipReason = "目标已存在且大小一致";
-                    }
-                    plan.Items.Add(item);
+                    });
                 }
 
                 _log.Info(string.Format("拷贝计划已生成：{0} 个文件，{1}，目标目录 {2}",
@@ -109,9 +105,45 @@ namespace AutoCardCopier.Core.Copying
         }
 
         /// <summary>
-        /// 执行前预检：目标根可达、可写、空间充足。
+        /// 解析最终的项目目录（含冲突处理）。本方法会访问文件系统，
+        /// 必须在后台线程调用，不得在界面线程直接调用。
         /// </summary>
-        public PlanPreflight Preflight(CopyPlan plan)
+        public string ResolveProjectDirectory(string targetRoot, AppSettings settings,
+            ProjectContext context, IList<string> warnings)
+        {
+            if (settings == null) { settings = AppSettings.CreateDefault(); }
+            if (context == null) { context = ProjectContext.CreateDefault(); }
+
+            string relative = NameTemplateEngine.ToWindowsRelativePath(
+                NameTemplateEngine.Expand(settings.NameTemplate, context));
+            string projectDirectory = Path.Combine(targetRoot, relative);
+
+            try
+            {
+                if (!Directory.Exists(projectDirectory)) { return projectDirectory; }
+            }
+            catch (Exception)
+            {
+                return projectDirectory;
+            }
+
+            if (settings.ConflictPolicy == ConflictPolicy.Merge)
+            {
+                if (warnings != null) { warnings.Add("项目目录已存在，按设置合并到已有目录：" + projectDirectory); }
+                return projectDirectory;
+            }
+
+            string renamed = PathUtil.MakeUniqueName(Path.GetDirectoryName(projectDirectory),
+                Path.GetFileName(projectDirectory));
+            if (warnings != null) { warnings.Add("项目目录已存在，已自动改名：" + renamed); }
+            return Path.Combine(Path.GetDirectoryName(projectDirectory), renamed);
+        }
+
+        /// <summary>
+        /// 执行前预检（异步、带超时）。目标探测在专用后台线程上完成，不会阻塞界面。
+        /// </summary>
+        public async Task<PlanPreflight> PreflightAsync(CopyPlan plan, int timeoutMs = TargetProbe.DefaultTimeoutMs,
+            CancellationToken token = default(CancellationToken))
         {
             var result = new PlanPreflight();
             if (plan == null)
@@ -122,90 +154,35 @@ namespace AutoCardCopier.Core.Copying
 
             result.RequiredBytes = plan.PendingBytes;
 
-            try
+            TargetProbeResult probe = await TargetProbe.CheckAsync(plan.TargetRoot, timeoutMs, token).ConfigureAwait(false);
+            if (!probe.Available)
             {
-                if (!Directory.Exists(plan.TargetRoot))
-                {
-                    result.Message = "目标目录不存在或不可访问：" + plan.TargetRoot;
-                    return result;
-                }
-
-                if (!AppPaths.IsWritable(plan.TargetRoot))
-                {
-                    result.Message = "目标目录不可写：" + plan.TargetRoot;
-                    return result;
-                }
-
-                VolumeInfo volume = VolumeApi.Read(Path.GetPathRoot(Path.GetFullPath(plan.TargetRoot)));
-                if (volume == null)
-                {
-                    result.Message = "无法读取目标磁盘信息：" + plan.TargetRoot;
-                    return result;
-                }
-
-                result.AvailableBytes = volume.FreeBytes;
-                long required = (long)(plan.PendingBytes * SpaceHeadroom);
-                if (volume.FreeBytes < required)
-                {
-                    result.Message = string.Format("目标空间不足：需要 {0}，可用 {1}",
-                        Humanize.Bytes(required), Humanize.Bytes(volume.FreeBytes));
-                    return result;
-                }
-
-                result.CanProceed = true;
-                result.Message = string.Format("预检通过：将拷贝 {0} 个文件，共 {1}",
-                    plan.PendingCount, Humanize.Bytes(plan.PendingBytes));
+                result.Message = probe.Message;
                 return result;
             }
-            catch (Exception ex)
+
+            result.AvailableBytes = probe.FreeBytes;
+            long required = (long)(plan.PendingBytes * SpaceHeadroom);
+            if (probe.FreeBytes > 0 && probe.FreeBytes < required)
             {
-                _log.Error("拷贝预检失败", ex);
-                result.Message = "预检失败：" + ex.Message;
+                result.Message = string.Format("目标空间不足：需要 {0}，可用 {1}",
+                    Humanize.Bytes(required), Humanize.Bytes(probe.FreeBytes));
                 return result;
             }
+
+            result.CanProceed = true;
+            result.Message = string.Format("预检通过：将拷贝 {0} 个文件，共 {1}",
+                plan.PendingCount, Humanize.Bytes(plan.PendingBytes));
+            return result;
         }
 
-        /// <summary>按冲突策略决定最终的项目目录。</summary>
-        private string ResolveConflict(string projectDirectory, ConflictPolicy policy, IList<string> warnings)
+        /// <summary>
+        /// 同步预检（仅供测试与后台线程使用）。
+        /// 禁止在界面线程调用——它会阻塞等待目标探测结果，请改用 PreflightAsync。
+        /// </summary>
+        public PlanPreflight Preflight(CopyPlan plan)
         {
-            if (!Directory.Exists(projectDirectory)) { return projectDirectory; }
-
-            switch (policy)
-            {
-                case ConflictPolicy.Merge:
-                    warnings.Add("项目目录已存在，按设置合并到已有目录：" + projectDirectory);
-                    return projectDirectory;
-
-                case ConflictPolicy.Ask:
-                default:
-                    // 界面层会在需要时询问；此处为安全起见仍然自动改名，避免覆盖已有素材
-                    string renamed = PathUtil.MakeUniqueName(Path.GetDirectoryName(projectDirectory), Path.GetFileName(projectDirectory));
-                    warnings.Add("项目目录已存在，已自动改名：" + renamed);
-                    return Path.Combine(Path.GetDirectoryName(projectDirectory), renamed);
-            }
-        }
-
-        /// <summary>判断是否需要跳过（目标存在且符合策略）。</summary>
-        private static bool ShouldSkipExisting(CopyItem item, AppSettings settings)
-        {
-            try
-            {
-                string extended = PathUtil.Extend(item.TargetPath);
-                if (!File.Exists(extended)) { return false; }
-
-                if (settings.CopyMode == CopyMode.Force) { return false; }
-
-                var target = new FileInfo(extended);
-                if (settings.CopyMode == CopyMode.Skip) { return target.Length == item.Length; }
-
-                // CopyIfNewer：目标不早于源文件时跳过
-                return target.Length == item.Length &&
-                       target.LastWriteTimeUtc >= item.Source.LastWriteTimeUtc;
-            }
-            catch (Exception)
-            {
-                return false;
-            }
+            return PreflightAsync(plan).GetAwaiter().GetResult();
         }
 
         /// <summary>保证同一份计划内的目标路径唯一。</summary>

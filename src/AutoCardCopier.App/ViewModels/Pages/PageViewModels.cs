@@ -105,6 +105,7 @@ namespace AutoCardCopier.App.ViewModels.Pages
             RefreshCommand = new RelayCommand(RefreshCards);
             ScanCommand = new AsyncRelayCommand(ScanSelectedCardAsync, delegate { return !IsBusy && SelectedCard != null; });
             StartCopyCommand = new AsyncRelayCommand(StartCopyAsync, delegate { return !IsBusy && CanStartCopy; });
+            ResumeCommand = new AsyncRelayCommand(ResumeAsync, delegate { return !IsBusy && !IsCopying && CanResume; });
             CancelCopyCommand = new RelayCommand(CancelCopy, delegate { return IsCopying; });
             PauseResumeCommand = new RelayCommand(TogglePause, delegate { return IsCopying; });
             FormatCardCommand = new RelayCommand(FormatCard, delegate { return CanFormatCard; });
@@ -395,6 +396,10 @@ namespace AutoCardCopier.App.ViewModels.Pages
 
         private string _currentTaskId;
         private CopyPlan _currentPlan;
+        private IList<CopyPlan> _currentPlans;
+        private BackupResult _currentBackup;
+        private string _currentProjectId;
+        private TaskPlanFile _planFile;
         private CopyResult _currentCopyResult;
         private VerifyReport _currentVerifyReport;
         private ProjectContext _currentContext;
@@ -411,6 +416,9 @@ namespace AutoCardCopier.App.ViewModels.Pages
         public RelayCommand RefreshCommand { get; private set; }
         public AsyncRelayCommand ScanCommand { get; private set; }
         public AsyncRelayCommand StartCopyCommand { get; private set; }
+
+        /// <summary>继续上次被中断的任务（F12 精确断点续传）。</summary>
+        public AsyncRelayCommand ResumeCommand { get; private set; }
         public RelayCommand CancelCopyCommand { get; private set; }
         public RelayCommand PauseResumeCommand { get; private set; }
 
@@ -705,7 +713,18 @@ namespace AutoCardCopier.App.ViewModels.Pages
                 else
                 {
                     TaskRecord last = interrupted[interrupted.Count - 1];
-                    ResumeHintText = "上次有任务未完成：" + last.ProjectName + "；已拷贝的文件仍然保留，重新开始会自动跳过已完成的文件。";
+                    _planFile = Services.PlanStore.Load(last.Id);
+                    if (_planFile != null && _planFile.IsSourceAvailable())
+                    {
+                        ResumeHintText = string.Format(
+                            "上次任务（{0}）未完成：还剩 {1} 个文件未拷贝。插回原卡后点“继续上次任务”即可直接补拷，不需要重新扫描。",
+                            last.ProjectName, Humanize.Count(_planFile.TotalPendingCount));
+                    }
+                    else
+                    {
+                        ResumeHintText = "上次有任务未完成：" + last.ProjectName +
+                                         "；重新扫描后再次拷贝会自动跳过已完成的文件。";
+                    }
                     StatusText = ResumeHintText;
                 }
             }
@@ -715,12 +734,14 @@ namespace AutoCardCopier.App.ViewModels.Pages
             }
             RaisePropertyChanged("ResumeHintText");
             RaisePropertyChanged("HasResumeHint");
+            RaiseResumeState();
         }
 
         /// <summary>任务开始时写入一条"进行中"记录。</summary>
         private void BeginTaskRecord(CopyPlan plan, CardItemViewModel cardItem, ProjectContext context)
         {
             _currentTaskId = ProjectMeta.NewId();
+            _currentProjectId = ProjectMeta.NewId();
             _currentPlan = plan;
             _currentContext = context;
             _currentCardItem = cardItem;
@@ -812,6 +833,228 @@ namespace AutoCardCopier.App.ViewModels.Pages
             }
         }
 
+        // ---------- 断点续传（F12） ----------
+
+        /// <summary>是否存在可继续的任务。</summary>
+        public bool CanResume
+        {
+            get { return _planFile != null && _planFile.IsSourceAvailable(); }
+        }
+
+        /// <summary>通知续传相关属性变化。</summary>
+        private void RaiseResumeState()
+        {
+            RaisePropertyChanged("CanResume");
+            RaisePropertyChanged("ResumeHintText");
+            if (ResumeCommand != null) { ResumeCommand.RaiseCanExecuteChanged(); }
+        }
+
+        /// <summary>写入或更新断点续传计划文件。</summary>
+        private void SavePlanFile(IList<CopyPlan> plans, CardItemViewModel cardItem, ProjectContext context)
+        {
+            try
+            {
+                if (_currentTaskId == null || plans == null || plans.Count == 0) { return; }
+
+                if (_planFile == null)
+                {
+                    _planFile = TaskPlanStore.FromPlans(_currentTaskId, _currentProjectId,
+                        cardItem == null ? string.Empty : cardItem.Card.ScanRootPath,
+                        new ProjectContextLike
+                        {
+                            ProjectName = plans[0].ProjectName,
+                            ShootDate = TimeUtil.ToIso(context.ShootDate),
+                            Location = context.Location,
+                            ShootType = context.ShootType,
+                            Photographer = context.Photographer,
+                            CameraModel = context.CameraModel,
+                            CardFingerprint = cardItem == null ? string.Empty : cardItem.Card.Identity.Fingerprint,
+                            CardLabel = cardItem == null ? string.Empty : cardItem.Card.VolumeLabel
+                        }, plans);
+                }
+
+                if (_currentBackup != null)
+                {
+                    foreach (BackupTargetResult target in _currentBackup.Targets)
+                    {
+                        if (target.Copy != null) { TaskPlanStore.ApplyResult(_planFile, target.Root, target.Copy); }
+                    }
+                }
+
+                Services.PlanStore.Save(_planFile);
+            }
+            catch (Exception ex)
+            {
+                _log.Warn("保存续传计划失败", ex);
+            }
+        }
+
+        /// <summary>
+        /// 继续上次被中断的任务：只补拷未完成的文件，然后重新校验。
+        /// 与重新扫描再拷贝的区别在于：这里直接使用落盘的计划文件，不必重新扫描卡片，
+        /// 也不会重复校验已经确认完成的文件。
+        /// </summary>
+        private async Task ResumeAsync()
+        {
+            TaskPlanFile file = _planFile;
+            if (file == null) { StatusText = "没有可继续的任务。"; return; }
+            if (!file.IsSourceAvailable())
+            {
+                StatusText = "源卡片未连接（" + file.SourceRoot + "），请插回原卡后再继续。";
+                return;
+            }
+
+            IList<CopyPlan> plans = TaskPlanStore.ToPlans(file, _log);
+            if (plans.Count == 0) { StatusText = "计划文件内容为空，无法继续。"; return; }
+
+            CardItemViewModel cardItem = SelectedCard;
+            var context = new ProjectContext
+            {
+                ShootDate = TimeUtil.ParseIso(file.ShootDate, DateTime.Now),
+                ShootType = file.ShootType,
+                Location = file.Location,
+                Photographer = file.Photographer,
+                CameraModel = file.CameraModel,
+                CardLabel = file.CardLabel
+            };
+
+            IsBusy = true;
+            IsCopying = true;
+            HasResult = false;
+            Failures.Clear();
+            ResultSummary = string.Empty;
+
+            _currentPlans = plans;
+            _currentTaskId = file.TaskId;
+            _currentProjectId = file.ProjectId;
+            _currentCardItem = cardItem;
+            _currentContext = context;
+            _currentCopyResult = null;
+            _currentVerifyReport = null;
+            _currentBackup = null;
+
+            var failures = new List<string>();
+            try
+            {
+                int pending = 0;
+                foreach (CopyPlan each in plans) { pending += each.PendingCount; }
+                StatusText = pending > 0
+                    ? string.Format("正在继续上次任务，需补拷 {0} 个文件…", Humanize.Count(pending))
+                    : "上次任务的文件均已完成，正在重新校验…";
+
+                _cancellation = new CancellationTokenSource();
+                _pauseToken.Resume();
+                IsPaused = false;
+
+                var copyProgress = new Progress<CopyProgress>(delegate (CopyProgress value)
+                {
+                    CopyPercent = value.Ratio * 100;
+                    CopySpeedText = Humanize.Speed(value.BytesPerSecond);
+                    CopyEtaText = value.Remaining > TimeSpan.Zero ? "剩余 " + Humanize.Duration(value.Remaining) : "计算中…";
+                    CopyCurrentFile = value.CurrentFile;
+                    ProgressText = string.Format("{0}{1} / {2} 个文件 · {3} / {4} · {5}",
+                        value.TargetCount > 1 ? "[" + value.TargetIndex + "/" + value.TargetCount + "] " : string.Empty,
+                        Humanize.Count(value.CompletedFiles), Humanize.Count(value.TotalFiles),
+                        Humanize.Bytes(value.CompletedBytes), Humanize.Bytes(value.TotalBytes), CopySpeedText);
+                });
+
+                var resumePlanSet = new BackupPlanSet();
+                foreach (CopyPlan restoredPlan in plans) { resumePlanSet.Plans.Add(restoredPlan); }
+
+                BackupResult backup = await Services.Backup.RunAsync(
+                    resumePlanSet, Services.Settings, copyProgress, _pauseToken, _cancellation.Token);
+                _currentBackup = backup;
+
+                CopyResult copyResult = backup.Primary == null || backup.Primary.Copy == null ? new CopyResult() : backup.Primary.Copy;
+                VerifyReport report = backup.Primary == null || backup.Primary.Verify == null ? new VerifyReport() : backup.Primary.Verify;
+                _currentCopyResult = copyResult;
+                _currentVerifyReport = report;
+
+                foreach (BackupTargetResult target in backup.Targets)
+                {
+                    if (!target.Succeeded) { failures.Add("目标未完成：" + target.DisplayName + " —— " + target.Message); }
+                }
+
+                SavePlanFile(plans, cardItem, context);
+
+                if (backup.Cancelled)
+                {
+                    StatusText = "已取消继续任务，已完成的文件保留在目标目录。";
+                    ResultSummary = "任务已取消";
+                    HasResult = true;
+                    return;
+                }
+
+                string projectId = _currentProjectId ?? ProjectMeta.NewId();
+                _currentProjectId = projectId;
+                foreach (BackupTargetResult target in backup.Targets)
+                {
+                    if (target.Plan == null) { continue; }
+                    var writeResult = Services.ManifestWriter.WriteProjectFiles(
+                        target.Plan, null, context, Services.Settings, target.Copy, target.Verify,
+                        cardItem == null ? null : cardItem.Card.Identity, projectId);
+                    if (!writeResult.Success) { failures.Add("清单写入失败（" + target.Root + "）：" + writeResult.Message); }
+                }
+
+                StatusText = "正在检查卡上是否还有未被拷贝的素材…";
+                CoverageReport coverage = await Task.Run(delegate
+                {
+                    var copiedPaths = new List<string>();
+                    foreach (CopyPlan each in plans)
+                    {
+                        foreach (CopyItem planItem in each.Items)
+                        {
+                            if (!copiedPaths.Contains(planItem.Source.FullPath)) { copiedPaths.Add(planItem.Source.FullPath); }
+                        }
+                    }
+                    return CoverageChecker.Check(file.SourceRoot, Services.Settings, copiedPaths, _log, CancellationToken.None);
+                });
+                _lastCoverage = coverage;
+                if (!coverage.FullyCovered) { failures.Add("⚠️ " + coverage.Message); }
+
+                bool allOk = backup.AllSucceeded && coverage.FullyCovered;
+                LastVerifiedCardFingerprint = allOk && report.Level != VerifyLevel.None && cardItem != null
+                    ? cardItem.Card.Identity.Fingerprint
+                    : null;
+
+                if (allOk)
+                {
+                    Services.PlanStore.Delete(file.TaskId);
+                    _planFile = null;
+                    ResumeHintText = string.Empty;
+                }
+
+                ResultSummary = string.Format("{0}；本轮补拷 {1} 个文件（{2}）；{3}；{4}",
+                    allOk ? "✅ 续传后拷贝与校验全部通过" : "⚠️ 续传后仍存在问题",
+                    Humanize.Count(copyResult.CopiedFiles), Humanize.Bytes(copyResult.CopiedBytes),
+                    report.Summary, coverage.Message);
+                HasResult = true;
+                StatusText = plans[0].ProjectDirectory;
+                RefreshFormatState();
+            }
+            catch (Exception ex)
+            {
+                _log.Error("继续任务失败", ex);
+                StatusText = "继续任务失败：" + ex.Message;
+                failures.Add("异常：" + ex.Message);
+                HasResult = true;
+                ResultSummary = "继续任务失败";
+            }
+            finally
+            {
+                IsCopying = false;
+                IsBusy = false;
+                IsPaused = false;
+                CopyCurrentFile = string.Empty;
+                CopySpeedText = string.Empty;
+                CopyEtaText = string.Empty;
+                ProgressText = string.Empty;
+                foreach (string line in failures) { Failures.Add(line); }
+                RaiseResumeState();
+                StartCopyCommand.RaiseCanExecuteChanged();
+            }
+        }
+
         // ---------- 拷贝 ----------
 
         private void CancelCopy()
@@ -864,33 +1107,46 @@ namespace AutoCardCopier.App.ViewModels.Pages
             var failures = new List<string>();
             try
             {
-                // 1. 生成计划
-                StatusText = "正在生成拷贝计划…";
-                var planResult = Services.PlanBuilder.Build(scan, settings, context, settings.PrimaryTargetRoot);
-                if (!planResult.Success)
+                // 1. 解析目标、探测目标可用性并生成计划（全程 await，界面线程不阻塞）
+                StatusText = "正在检查目标目录并生成拷贝计划…";
+                var planSetResult = await Services.Backup.BuildPlansAsync(
+                    scan, settings, context, TargetProbe.DefaultTimeoutMs, CancellationToken.None);
+                if (!planSetResult.Success)
                 {
-                    StatusText = planResult.Message;
+                    StatusText = planSetResult.Message;
                     return;
                 }
-                CopyPlan plan = planResult.Value;
+                BackupPlanSet planSet = planSetResult.Value;
+                IList<CopyPlan> plans = planSet.Plans;
+                _currentPlans = plans;
+                CopyPlan plan = plans[0];
 
-                // 2. 预检
-                PlanPreflight preflight = Services.PlanBuilder.Preflight(plan);
-                if (!preflight.CanProceed)
+                // 不可用目标（离线硬盘、超时的网络路径）如实列出，稍后汇总为“部分成功”
+                foreach (TargetProbeResult unavailable in planSet.UnavailableTargets)
+                {
+                    failures.Add("目标不可用：" + unavailable.Root + " —— " + unavailable.Message);
+                }
+
+                // 2. 预检（单目标时直接拦截；多目标时由协调器逐个检查，副目标失败不影响主目标）
+                PlanPreflight preflight = await Services.PlanBuilder.PreflightAsync(
+                    plan, TargetProbe.DefaultTimeoutMs, CancellationToken.None);
+                if (!preflight.CanProceed && planSet.UnavailableTargets.Count == 0)
                 {
                     StatusText = preflight.Message;
                     return;
                 }
                 foreach (string warning in plan.Warnings) { failures.Add("提示：" + warning); }
 
-                // 任务开始即落一条记录：程序若异常退出，下次启动就能发现并提示
+                // 任务开始即落一条记录，并写入断点续传计划文件（F12）
                 BeginTaskRecord(plan, item, context);
+                SavePlanFile(plans, item, context);
 
-                // 3. 拷贝
+                // 3. 拷贝 + 4. 校验（多目标串行执行）
                 _cancellation = new CancellationTokenSource();
                 _pauseToken.Resume();
                 IsPaused = false;
-                StatusText = "正在拷贝 " + Humanize.Count(plan.PendingCount) + " 个文件（" + Humanize.Bytes(plan.PendingBytes) + "）…";
+                StatusText = string.Format("正在拷贝 {0} 个文件（{1}），共 {2} 个目标…",
+                    Humanize.Count(plan.PendingCount), Humanize.Bytes(plan.PendingBytes), plans.Count);
 
                 var copyProgress = new Progress<CopyProgress>(delegate (CopyProgress value)
                 {
@@ -898,51 +1154,65 @@ namespace AutoCardCopier.App.ViewModels.Pages
                     CopySpeedText = Humanize.Speed(value.BytesPerSecond);
                     CopyEtaText = value.Remaining > TimeSpan.Zero ? "剩余 " + Humanize.Duration(value.Remaining) : "计算中…";
                     CopyCurrentFile = value.CurrentFile;
-                    ProgressText = string.Format("{0} / {1} 个文件 · {2} / {3} · {4}",
+                    ProgressText = string.Format("{0}{1} / {2} 个文件 · {3} / {4} · {5}",
+                        value.TargetCount > 1 ? "[" + value.TargetIndex + "/" + value.TargetCount + "] " : string.Empty,
                         Humanize.Count(value.CompletedFiles), Humanize.Count(value.TotalFiles),
                         Humanize.Bytes(value.CompletedBytes), Humanize.Bytes(value.TotalBytes), CopySpeedText);
                 });
 
-                CopyResult copyResult = await Services.CopyEngine.RunAsync(
-                    plan, settings, copyProgress, _pauseToken, _cancellation.Token);
-                _currentCopyResult = copyResult;
+                BackupResult backup = await Services.Backup.RunAsync(
+                    planSet, settings, copyProgress, _pauseToken, _cancellation.Token);
+                _currentBackup = backup;
 
-                foreach (CopyFailure failure in copyResult.Failures)
+                CopyResult copyResult = backup.Primary == null || backup.Primary.Copy == null
+                    ? new CopyResult() : backup.Primary.Copy;
+                VerifyReport report = backup.Primary == null || backup.Primary.Verify == null
+                    ? new VerifyReport() : backup.Primary.Verify;
+                _currentCopyResult = copyResult;
+                _currentVerifyReport = report;
+
+                // 每个目标的失败与校验问题都要如实上报
+                foreach (BackupTargetResult target in backup.Targets)
                 {
-                    failures.Add("拷贝失败：" + failure.SourcePath + "（" + failure.Error + "）");
+                    if (!target.Succeeded) { failures.Add("目标未完成：" + target.DisplayName + " —— " + target.Message); }
+                    IList<CopyFailure> targetFailures = target.Copy == null ? new List<CopyFailure>() : target.Copy.Failures;
+                    foreach (CopyFailure failure in targetFailures)
+                    {
+                        failures.Add("拷贝失败：" + failure.SourcePath + "（" + failure.Error + "）");
+                    }
+                    if (target.Verify != null)
+                    {
+                        foreach (FileVerifyFailure failure in target.Verify.Failures)
+                        {
+                            failures.Add("校验失败：" + failure.TargetPath + "（" + failure.Detail + "）");
+                        }
+                    }
                 }
 
-                if (copyResult.Cancelled)
+                // 记录本轮完成情况，便于断电/退出后续传
+                SavePlanFile(plans, item, context);
+
+                if (backup.Cancelled)
                 {
-                    StatusText = "任务已取消。已拷贝的文件保留在目标目录，可重新扫描后再次拷贝（会自动跳过已完成的文件）。";
+                    StatusText = "任务已取消。已拷贝的文件保留在目标目录；下次启动可以直接“继续上次任务”，软件只会补拷未完成的文件。";
                     ResultSummary = "任务已取消";
                     HasResult = true;
                     return;
                 }
 
-                // 4. 校验
-                StatusText = "正在校验数据完整性（" + settings.VerifyLevel + "）…";
-                var verifyProgress = new Progress<VerifyProgress>(delegate (VerifyProgress value)
+                // 5. 写入清单与项目元数据（每个目标各写一份，保证任意一块盘都能自描述）
+                string projectId = _currentProjectId ?? ProjectMeta.NewId();
+                _currentProjectId = projectId;
+                foreach (BackupTargetResult target in backup.Targets)
                 {
-                    ProgressText = string.Format("校验中 {0} / {1}", Humanize.Count(value.CompletedFiles), Humanize.Count(value.TotalFiles));
-                });
-
-                VerifyReport report = await Task.Run(delegate
-                {
-                    return VerifyService.Verify(plan, settings, verifyProgress, CancellationToken.None, _log);
-                });
-                _currentVerifyReport = report;
-
-                foreach (FileVerifyFailure failure in report.Failures)
-                {
-                    failures.Add("校验失败：" + failure.TargetPath + "（" + failure.Detail + "）");
+                    if (target.Plan == null) { continue; }
+                    var writeResult = Services.ManifestWriter.WriteProjectFiles(
+                        target.Plan, scan, context, settings, target.Copy, target.Verify, item.Card.Identity, projectId);
+                    if (!writeResult.Success)
+                    {
+                        failures.Add("清单写入失败（" + target.Root + "）：" + writeResult.Message);
+                    }
                 }
-
-                // 5. 写入清单与项目元数据
-                string projectId = ProjectMeta.NewId();
-                var writeResult = Services.ManifestWriter.WriteProjectFiles(
-                    plan, scan, context, settings, copyResult, report, item.Card.Identity, projectId);
-                if (!writeResult.Success) { failures.Add("清单写入失败：" + writeResult.Message); }
 
                 // 6. 记住地点，便于下次快速选择
                 Services.Presets.RememberLocation(context.Location);
@@ -953,7 +1223,13 @@ namespace AutoCardCopier.App.ViewModels.Pages
                 CoverageReport coverage = await Task.Run(delegate
                 {
                     var copiedPaths = new List<string>();
-                    foreach (CopyItem planItem in plan.Items) { copiedPaths.Add(planItem.Source.FullPath); }
+                    foreach (CopyPlan eachPlan in plans)
+                    {
+                        foreach (CopyItem planItem in eachPlan.Items)
+                        {
+                            if (!copiedPaths.Contains(planItem.Source.FullPath)) { copiedPaths.Add(planItem.Source.FullPath); }
+                        }
+                    }
                     return CoverageChecker.Check(item.Card.ScanRootPath, settings, copiedPaths, _log, CancellationToken.None);
                 });
                 _lastCoverage = coverage;
@@ -963,13 +1239,20 @@ namespace AutoCardCopier.App.ViewModels.Pages
                     foreach (string sample in coverage.Samples) { failures.Add("    未拷贝：" + sample); }
                 }
 
-                LastVerifiedCardFingerprint = report.AllPassed && report.Level != VerifyLevel.None && coverage.FullyCovered
+                bool allTargetsOk = backup.AllSucceeded;
+                LastVerifiedCardFingerprint = allTargetsOk && report.Level != VerifyLevel.None && coverage.FullyCovered
                     ? item.Card.Identity.Fingerprint
                     : null;
 
-                ResultSummary = string.Format("{0}；拷贝 {1} 个文件（{2}），耗时 {3}，平均 {4}；{5}；{6}",
-                    report.AllPassed ? "✅ 拷贝与校验全部通过" : "⚠️ 校验存在问题",
-                    Humanize.Count(copyResult.CopiedFiles), Humanize.Bytes(copyResult.CopiedBytes),
+                // 任务全部完成：删除计划文件，避免下次误提示续传
+                if (allTargetsOk && coverage.FullyCovered && _currentTaskId != null)
+                {
+                    Services.PlanStore.Delete(_currentTaskId);
+                }
+
+                ResultSummary = string.Format("{0}；{1}；耗时 {2}，平均 {3}；{4}；{5}",
+                    allTargetsOk ? "✅ 拷贝与校验全部通过" : "⚠️ 存在未完成的目标或校验问题",
+                    backup.Summary,
                     Humanize.Duration(copyResult.Duration), Humanize.Speed(copyResult.AverageBytesPerSecond),
                     report.Summary, coverage.Message);
                 HasResult = true;

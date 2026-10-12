@@ -106,10 +106,16 @@ namespace AutoCardCopier.Tests
                     var context = new ProjectContext { ShootDate = new DateTime(2026, 3, 10), ShootType = "婚礼", Location = "上海" };
 
                     var builder = new CopyPlanBuilder(NullLog.Instance);
-                    CopyPlan first = builder.Build(scan, settings, context, target.Path).Value;
+
+                    // 修复 BUG-002 后：目录冲突判断在 ResolveProjectDirectory 中完成（后台线程执行），
+                    // 计划生成本身是纯内存计算，不再访问文件系统
+                    string firstDirectory = builder.ResolveProjectDirectory(target.Path, settings, context, null);
+                    CopyPlan first = builder.Build(scan, settings, context, target.Path, firstDirectory).Value;
+                    Assert.Equal(firstDirectory, first.ProjectDirectory);
                     Directory.CreateDirectory(first.ProjectDirectory);
 
-                    CopyPlan second = builder.Build(scan, settings, context, target.Path).Value;
+                    string secondDirectory = builder.ResolveProjectDirectory(target.Path, settings, context, null);
+                    CopyPlan second = builder.Build(scan, settings, context, target.Path, secondDirectory).Value;
                     Assert.False(second.ProjectDirectory == first.ProjectDirectory, "第二次应当生成不同的目录");
                     Assert.Contains("_2", second.ProjectDirectory);
                 }
@@ -274,14 +280,21 @@ namespace AutoCardCopier.Tests
                     var builder = new CopyPlanBuilder(NullLog.Instance);
                     var context = new ProjectContext { ShootDate = new DateTime(2026, 3, 10), ShootType = "其他", Location = "跳过测试" };
 
-                    CopyPlan first = builder.Build(scan, settings, context, target.Path).Value;
-                    new CopyEngine(NullLog.Instance).RunAsync(first, settings, null, new PauseToken(), CancellationToken.None)
-                        .GetAwaiter().GetResult();
+                    CopyPlan plan = builder.Build(scan, settings, context, target.Path).Value;
+                    var engine = new CopyEngine(NullLog.Instance);
 
-                    CopyPlan second = builder.Build(scan, settings, context, target.Path).Value;
-                    Assert.Equal(0, second.PendingCount);
-                    Assert.Equal(2, second.Items.Count);
-                    Assert.Equal("目标已存在且大小一致", second.Items[0].SkipReason);
+                    CopyResult first = engine.RunAsync(plan, settings, null, new PauseToken(), CancellationToken.None)
+                        .GetAwaiter().GetResult();
+                    Assert.Equal(2, first.CopiedFiles);
+
+                    // 修复 BUG-002 后：跳过判断在拷贝工作线程上完成（避免计划阶段对网络目标逐文件探测），
+                    // 因此计划里的动作仍然全是拷贝，但第二次执行会全部跳过
+                    Assert.Equal(2, plan.PendingCount);
+                    CopyResult second = engine.RunAsync(plan, settings, null, new PauseToken(), CancellationToken.None)
+                        .GetAwaiter().GetResult();
+                    Assert.Equal(0, second.CopiedFiles);
+                    Assert.Equal(2, second.SkippedFiles);
+                    Assert.Equal(2, second.SkippedTargetPaths.Count);
                 }
             });
 
