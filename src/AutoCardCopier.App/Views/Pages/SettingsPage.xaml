@@ -29,6 +29,10 @@
                       Command="{Binding BrowseTargetCommand}" />
             </Grid>
 
+            <TextBlock Text="副目标根目录（可选，用于双备份；留空表示只写主目标）" Style="{StaticResource SecondaryText}" />
+            <TextBox Style="{StaticResource AppTextBox}" Margin="0,4,0,10"
+                     Text="{Binding SecondaryTargetRoot, UpdateSourceTrigger=PropertyChanged}" />
+
             <TextBlock Text="命名模板（占位符：{yyyy} {yyyy-MM-dd} {type} {location} {camera} {seq}）" Style="{StaticResource SecondaryText}" />
             <TextBox Style="{StaticResource AppTextBox}" Margin="0,4,0,10"
                      Text="{Binding NameTemplate, UpdateSourceTrigger=PropertyChanged}" />

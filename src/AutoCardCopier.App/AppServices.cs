@@ -50,6 +50,12 @@ namespace AutoCardCopier.App
         /// <summary>清单与项目元数据写入器。</summary>
         public ManifestWriter ManifestWriter { get; private set; }
 
+        /// <summary>多目标备份协调器（F11）。</summary>
+        public BackupCoordinator Backup { get; private set; }
+
+        /// <summary>断点续传计划存储（F12）。</summary>
+        public TaskPlanStore PlanStore { get; private set; }
+
         /// <summary>预设（常用地点与拍摄类型）。</summary>
         public PresetsStore Presets { get; private set; }
 
@@ -107,6 +113,8 @@ namespace AutoCardCopier.App
             services.PlanBuilder = new CopyPlanBuilder(services.Logger);
             services.CopyEngine = new CopyEngine(services.Logger);
             services.ManifestWriter = new ManifestWriter(services.Logger);
+            services.Backup = new BackupCoordinator(services.PlanBuilder, services.CopyEngine, services.Logger);
+            services.PlanStore = new TaskPlanStore(AppPaths.PlanDirectory(services.DataDirectory), services.Logger);
             services.Presets = new PresetsStore(AppPaths.PresetsFile(services.DataDirectory), services.Logger);
             services.ProjectLibrary = new ProjectLibrary(AppPaths.ProjectsDirectory(services.DataDirectory), services.Logger);
             services.TaskHistory = new TaskHistoryStore(AppPaths.HistoryFile(services.DataDirectory), services.Logger);
