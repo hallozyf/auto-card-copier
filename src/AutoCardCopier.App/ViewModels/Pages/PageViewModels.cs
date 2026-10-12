@@ -38,6 +38,107 @@ namespace AutoCardCopier.App.ViewModels.Pages
         public string Description { get; private set; }
     }
 
+    /// <summary>
+    /// 一个拍摄日期分组的界面项（F13-C）：可编辑项目名、地点、类型，并实时预览目标目录。
+    /// </summary>
+    public sealed class MediaGroupItemViewModel : ViewModelBase
+    {
+        private readonly string _targetRoot;
+        private readonly string _parentRelative;
+        private string _projectName;
+        private string _location;
+        private string _shootType;
+
+        public MediaGroupItemViewModel(MediaDayGroup group, ProjectContext context, string defaultName,
+            string targetRoot, string parentRelative)
+        {
+            Group = group;
+            Context = context;
+            _targetRoot = targetRoot;
+            _parentRelative = parentRelative;
+            _location = context.Location;
+            _shootType = context.ShootType;
+            _projectName = defaultName;
+        }
+
+        /// <summary>对应的扫描分组。</summary>
+        public MediaDayGroup Group { get; private set; }
+
+        /// <summary>项目上下文（拷贝时使用）。</summary>
+        public ProjectContext Context { get; private set; }
+
+        /// <summary>本项目包含的文件。</summary>
+        public IList<ScannedFile> Files { get { return Group.Files; } }
+
+        public string DateText { get { return Group.DisplayDate; } }
+        public string RangeText { get { return Group.DisplayRange; } }
+        public string SizeText { get { return Humanize.Bytes(Group.TotalBytes); } }
+        public string CountText
+        {
+            get
+            {
+                return string.Format("照片 {0} · 视频 {1} · 其他 {2}",
+                    Humanize.Count(Group.PhotoCount), Humanize.Count(Group.VideoCount), Humanize.Count(Group.OtherCount));
+            }
+        }
+
+        /// <summary>项目名（可编辑）；同时用于生成目录名。</summary>
+        public string ProjectName
+        {
+            get { return _projectName; }
+            set
+            {
+                if (SetProperty(ref _projectName, value))
+                {
+                    RaisePropertyChanged("TargetPreviewText");
+                    RaisePropertyChanged("RelativeDirectory");
+                }
+            }
+        }
+
+        /// <summary>本项目的相对目录（父级 + 项目名）。</summary>
+        public string RelativeDirectory
+        {
+            get
+            {
+                string name = PathUtil.SanitizeName(_projectName, 100);
+                if (string.IsNullOrEmpty(_parentRelative)) { return name; }
+                return System.IO.Path.Combine(_parentRelative, name);
+            }
+        }
+
+        /// <summary>拍摄地点（可编辑）。</summary>
+        public string Location
+        {
+            get { return _location; }
+            set { if (SetProperty(ref _location, value)) { Context.Location = value; } }
+        }
+
+        /// <summary>拍摄类型（可编辑）。</summary>
+        public string ShootType
+        {
+            get { return _shootType; }
+            set { if (SetProperty(ref _shootType, value)) { Context.ShootType = value; } }
+        }
+
+        /// <summary>目标目录预览。</summary>
+        public string TargetPreviewText
+        {
+            get
+            {
+                if (string.IsNullOrWhiteSpace(_targetRoot)) { return "尚未设置素材目标目录"; }
+                return System.IO.Path.Combine(_targetRoot, RelativeDirectory);
+            }
+        }
+
+        /// <summary>把统一填写的地点/类型写入本分组。</summary>
+        public void ApplyBulk(string location, string shootType)
+        {
+            if (!string.IsNullOrEmpty(location)) { Location = location; }
+            if (!string.IsNullOrEmpty(shootType)) { ShootType = shootType; }
+        }
+    }
+
     /// <summary>卡片列表中的一项。</summary>
     public sealed class CardItemViewModel : ViewModelBase
     {
@@ -102,6 +203,8 @@ namespace AutoCardCopier.App.ViewModels.Pages
             Locations = new ObservableCollection<string>(services.Presets.Load().Locations);
             _shootType = services.Presets.Load().DefaultShootType;
 
+            Groups = new ObservableCollection<MediaGroupItemViewModel>();
+            ApplyBulkCommand = new RelayCommand(ApplyBulkToAllGroups);
             RefreshCommand = new RelayCommand(RefreshCards);
             ScanCommand = new AsyncRelayCommand(ScanSelectedCardAsync, delegate { return !IsBusy && SelectedCard != null; });
             StartCopyCommand = new AsyncRelayCommand(StartCopyAsync, delegate { return !IsBusy && CanStartCopy; });
@@ -411,6 +514,42 @@ namespace AutoCardCopier.App.ViewModels.Pages
         /// <summary>是否存在中断提示。</summary>
         public bool HasResumeHint { get { return !string.IsNullOrEmpty(ResumeHintText); } }
 
+        // ---------- 多日分组（F13） ----------
+
+        private string _bulkLocation = string.Empty;
+        private string _bulkShootType = string.Empty;
+        private string _groupSummaryText = string.Empty;
+
+        /// <summary>按拍摄日期分组的项目列表（单日卡只有一项）。</summary>
+        public ObservableCollection<MediaGroupItemViewModel> Groups { get; private set; }
+
+        /// <summary>是否检测到多个拍摄日期（决定是否显示分组表格）。</summary>
+        public bool HasMultipleGroups { get { return Groups.Count > 1; } }
+
+        /// <summary>分组摘要文本。</summary>
+        public string GroupSummaryText
+        {
+            get { return _groupSummaryText; }
+            private set { SetProperty(ref _groupSummaryText, value); }
+        }
+
+        /// <summary>统一填写的地点（一键应用到全部分组）。</summary>
+        public string BulkLocation
+        {
+            get { return _bulkLocation; }
+            set { SetProperty(ref _bulkLocation, value); }
+        }
+
+        /// <summary>统一填写的拍摄类型（一键应用到全部分组）。</summary>
+        public string BulkShootType
+        {
+            get { return _bulkShootType; }
+            set { SetProperty(ref _bulkShootType, value); }
+        }
+
+        /// <summary>把统一填写的地点与类型应用到全部分组。</summary>
+        public RelayCommand ApplyBulkCommand { get; private set; }
+
         // ---------- 命令 ----------
 
         public RelayCommand RefreshCommand { get; private set; }
@@ -663,6 +802,7 @@ namespace AutoCardCopier.App.ViewModels.Pages
                 });
 
                 _scanResult = result;
+                RebuildGroups(result);
                 if (string.IsNullOrEmpty(Location) && !string.IsNullOrEmpty(result.CameraModel))
                 {
                     // 没有输入地点时不影响流程，这里只是记录机型到上下文
@@ -735,6 +875,48 @@ namespace AutoCardCopier.App.ViewModels.Pages
             RaisePropertyChanged("ResumeHintText");
             RaisePropertyChanged("HasResumeHint");
             RaiseResumeState();
+        }
+
+        /// <summary>把多个执行单元的拷贝结果聚合成一份（用于任务历史展示）。</summary>
+        private static CopyResult AggregateCopy(BackupResult backup)
+        {
+            var aggregate = new CopyResult();
+            aggregate.EnsurePathCollections();
+            if (backup == null) { return aggregate; }
+
+            foreach (BackupUnit unit in backup.Units)
+            {
+                if (unit.Copy == null) { continue; }
+                aggregate.CopiedFiles += unit.Copy.CopiedFiles;
+                aggregate.SkippedFiles += unit.Copy.SkippedFiles;
+                aggregate.FailedFiles += unit.Copy.FailedFiles;
+                aggregate.CopiedBytes += unit.Copy.CopiedBytes;
+                if (unit.Copy.Duration > aggregate.Duration) { aggregate.Duration = unit.Copy.Duration; }
+                foreach (CopyFailure failure in unit.Copy.Failures) { aggregate.Failures.Add(failure); }
+                foreach (string path in unit.Copy.CompletedTargetPaths) { aggregate.CompletedTargetPaths.Add(path); }
+                foreach (string path in unit.Copy.SkippedTargetPaths) { aggregate.SkippedTargetPaths.Add(path); }
+                foreach (string path in unit.Copy.FailedTargetPaths) { aggregate.FailedTargetPaths.Add(path); }
+            }
+            return aggregate;
+        }
+
+        /// <summary>把多个执行单元的校验结果聚合成一份。</summary>
+        private static VerifyReport AggregateVerify(BackupResult backup)
+        {
+            var aggregate = new VerifyReport();
+            if (backup == null) { return aggregate; }
+
+            foreach (BackupUnit unit in backup.Units)
+            {
+                if (unit.Verify == null) { continue; }
+                aggregate.Level = unit.Verify.Level;
+                aggregate.PassedFiles += unit.Verify.PassedFiles;
+                aggregate.FailedFiles += unit.Verify.FailedFiles;
+                aggregate.SkippedFiles += unit.Verify.SkippedFiles;
+                aggregate.VerifiedBytes += unit.Verify.VerifiedBytes;
+                foreach (FileVerifyFailure failure in unit.Verify.Failures) { aggregate.Failures.Add(failure); }
+            }
+            return aggregate;
         }
 
         /// <summary>任务开始时写入一条"进行中"记录。</summary>
@@ -833,6 +1015,139 @@ namespace AutoCardCopier.App.ViewModels.Pages
             }
         }
 
+        // ---------- 多日分组（F13-B/C） ----------
+
+        /// <summary>扫描完成后按拍摄日期分组，生成待命名的项目列表。</summary>
+        private void RebuildGroups(ScanResult scan)
+        {
+            Groups.Clear();
+
+            if (scan == null || scan.Groups == null || scan.Groups.Count == 0)
+            {
+                GroupSummaryText = string.Empty;
+                RaisePropertyChanged("HasMultipleGroups");
+                return;
+            }
+
+            string targetRoot = Services.Settings.PrimaryTargetRoot;
+            string template = Services.Settings.NameTemplate;
+
+            foreach (MediaDayGroup group in scan.Groups)
+            {
+                DateTime shootDate = group.Date
+                    ?? (scan.EarliestUtc.HasValue ? scan.EarliestUtc.Value.ToLocalTime().Date : DateTime.Now.Date);
+
+                var context = new ProjectContext
+                {
+                    ShootDate = shootDate,
+                    ShootType = string.IsNullOrWhiteSpace(ShootType) ? "其他" : ShootType.Trim(),
+                    Location = string.IsNullOrWhiteSpace(Location) ? "未标注地点" : Location.Trim(),
+                    Photographer = Photographer ?? string.Empty,
+                    CameraModel = scan.CameraModel,
+                    CardLabel = SelectedCard == null ? string.Empty : SelectedCard.Card.VolumeLabel
+                };
+
+                Groups.Add(new MediaGroupItemViewModel(group, context,
+                    BuildDefaultProjectName(template, context), targetRoot, BuildParentRelative(template, context)));
+            }
+
+            GroupSummaryText = string.Format("检测到 {0}，共 {1} / {2}",
+                MediaDayGrouper.Describe(scan.Groups), Humanize.Count(scan.TotalCount), Humanize.Bytes(scan.TotalBytes));
+            if (scan.UnknownTimeCount > 0)
+            {
+                GroupSummaryText += string.Format("；其中 {0} 个文件时间未知，请为“未知日期”组确认项目名",
+                    Humanize.Count(scan.UnknownTimeCount));
+            }
+            RaisePropertyChanged("HasMultipleGroups");
+        }
+
+        /// <summary>模板展开后取最后一段作为默认项目名。</summary>
+        private static string BuildDefaultProjectName(string template, ProjectContext context)
+        {
+            string relative = NameTemplateEngine.ToWindowsRelativePath(NameTemplateEngine.Expand(template, context));
+            int index = relative.LastIndexOf(System.IO.Path.DirectorySeparatorChar);
+            return PathUtil.SanitizeName(index >= 0 ? relative.Substring(index + 1) : relative, 100);
+        }
+
+        /// <summary>模板展开后取父级相对路径（除最后一段）。</summary>
+        private static string BuildParentRelative(string template, ProjectContext context)
+        {
+            string relative = NameTemplateEngine.ToWindowsRelativePath(NameTemplateEngine.Expand(template, context));
+            int index = relative.LastIndexOf(System.IO.Path.DirectorySeparatorChar);
+            return index >= 0 ? relative.Substring(0, index) : string.Empty;
+        }
+
+        /// <summary>把统一填写的地点与类型应用到全部分组。</summary>
+        private void ApplyBulkToAllGroups()
+        {
+            foreach (MediaGroupItemViewModel item in Groups) { item.ApplyBulk(BulkLocation, BulkShootType); }
+            StatusText = string.Format("已把地点与类型应用到 {0} 个分组。", Groups.Count);
+        }
+
+        /// <summary>
+        /// 构造拷贝请求：多日时按分组表格生成多个项目；单日时沿用拍摄信息表单，行为与旧版本一致。
+        /// </summary>
+        private IList<ProjectGroupRequest> BuildGroupRequests(ScanResult scan)
+        {
+            var requests = new List<ProjectGroupRequest>();
+
+            if (Groups.Count > 1)
+            {
+                foreach (MediaGroupItemViewModel item in Groups)
+                {
+                    string name = PathUtil.SanitizeName(item.ProjectName, 100);
+                    requests.Add(new ProjectGroupRequest
+                    {
+                        Context = item.Context,
+                        Files = item.Files,
+                        RelativeDirectory = item.RelativeDirectory,
+                        DisplayName = string.IsNullOrEmpty(name) ? item.DateText : name
+                    });
+                }
+                return requests;
+            }
+
+            var context = new ProjectContext
+            {
+                ShootDate = scan.EarliestUtc.HasValue ? scan.EarliestUtc.Value.ToLocalTime() : DateTime.Now,
+                ShootType = string.IsNullOrWhiteSpace(ShootType) ? "其他" : ShootType.Trim(),
+                Location = string.IsNullOrWhiteSpace(Location) ? "未标注地点" : Location.Trim(),
+                Photographer = Photographer ?? string.Empty,
+                CameraModel = scan.CameraModel,
+                CardLabel = SelectedCard == null ? string.Empty : SelectedCard.Card.VolumeLabel
+            };
+            string template = Services.Settings.NameTemplate;
+            requests.Add(new ProjectGroupRequest
+            {
+                Context = context,
+                Files = scan.Files,
+                RelativeDirectory = NameTemplateEngine.ToWindowsRelativePath(NameTemplateEngine.Expand(template, context)),
+                DisplayName = BuildDefaultProjectName(template, context)
+            });
+            return requests;
+        }
+
+        /// <summary>多项目时的名称校验（空名与重名都不允许开始拷贝）。</summary>
+        private string ValidateGroups()
+        {
+            if (Groups.Count <= 1) { return null; }
+
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (MediaGroupItemViewModel item in Groups)
+            {
+                string name = PathUtil.SanitizeName(item.ProjectName, 100);
+                if (string.IsNullOrWhiteSpace(name))
+                {
+                    return string.Format("{0} 的项目名为空，请填写后再开始拷贝。", item.DateText);
+                }
+                if (!seen.Add(item.RelativeDirectory))
+                {
+                    return "存在同名项目目录：" + item.RelativeDirectory + "，请修改项目名。";
+                }
+            }
+            return null;
+        }
+
         // ---------- 断点续传（F12） ----------
 
         /// <summary>是否存在可继续的任务。</summary>
@@ -875,9 +1190,9 @@ namespace AutoCardCopier.App.ViewModels.Pages
 
                 if (_currentBackup != null)
                 {
-                    foreach (BackupTargetResult target in _currentBackup.Targets)
+                    foreach (BackupUnit eachUnit in _currentBackup.Units)
                     {
-                        if (target.Copy != null) { TaskPlanStore.ApplyResult(_planFile, target.Root, target.Copy); }
+                        if (eachUnit.Copy != null) { TaskPlanStore.ApplyResult(_planFile, eachUnit.Root, eachUnit.Copy); }
                     }
                 }
 
@@ -959,20 +1274,37 @@ namespace AutoCardCopier.App.ViewModels.Pages
                 });
 
                 var resumePlanSet = new BackupPlanSet();
-                foreach (CopyPlan restoredPlan in plans) { resumePlanSet.Plans.Add(restoredPlan); }
+                foreach (CopyPlan restoredPlan in plans)
+                {
+                    resumePlanSet.Units.Add(new BackupUnit
+                    {
+                        Group = new ProjectGroupRequest
+                        {
+                            Context = context,
+                            Files = new List<ScannedFile>(),
+                            RelativeDirectory = restoredPlan.ProjectRelativePath,
+                            DisplayName = restoredPlan.ProjectName
+                        },
+                        Root = restoredPlan.TargetRoot,
+                        IsPrimaryTarget = resumePlanSet.Units.Count == 0,
+                        ProjectIndex = 0,
+                        ProjectCount = 1,
+                        Plan = restoredPlan
+                    });
+                }
 
                 BackupResult backup = await Services.Backup.RunAsync(
-                    resumePlanSet, Services.Settings, copyProgress, _pauseToken, _cancellation.Token);
+                    resumePlanSet, null, Services.Settings, copyProgress, _pauseToken, _cancellation.Token);
                 _currentBackup = backup;
 
-                CopyResult copyResult = backup.Primary == null || backup.Primary.Copy == null ? new CopyResult() : backup.Primary.Copy;
-                VerifyReport report = backup.Primary == null || backup.Primary.Verify == null ? new VerifyReport() : backup.Primary.Verify;
+                CopyResult copyResult = AggregateCopy(backup);
+                VerifyReport report = AggregateVerify(backup);
                 _currentCopyResult = copyResult;
                 _currentVerifyReport = report;
 
-                foreach (BackupTargetResult target in backup.Targets)
+                foreach (BackupUnit eachUnit in backup.Units)
                 {
-                    if (!target.Succeeded) { failures.Add("目标未完成：" + target.DisplayName + " —— " + target.Message); }
+                    if (!eachUnit.Succeeded) { failures.Add("未完成：" + eachUnit.DisplayName + " —— " + eachUnit.Message); }
                 }
 
                 SavePlanFile(plans, cardItem, context);
@@ -987,13 +1319,13 @@ namespace AutoCardCopier.App.ViewModels.Pages
 
                 string projectId = _currentProjectId ?? ProjectMeta.NewId();
                 _currentProjectId = projectId;
-                foreach (BackupTargetResult target in backup.Targets)
+                foreach (BackupUnit eachUnit in backup.Units)
                 {
-                    if (target.Plan == null) { continue; }
+                    if (eachUnit.Plan == null) { continue; }
                     var writeResult = Services.ManifestWriter.WriteProjectFiles(
-                        target.Plan, null, context, Services.Settings, target.Copy, target.Verify,
+                        eachUnit.Plan, null, context, Services.Settings, eachUnit.Copy, eachUnit.Verify,
                         cardItem == null ? null : cardItem.Card.Identity, projectId);
-                    if (!writeResult.Success) { failures.Add("清单写入失败（" + target.Root + "）：" + writeResult.Message); }
+                    if (!writeResult.Success) { failures.Add("清单写入失败（" + eachUnit.DisplayName + "）：" + writeResult.Message); }
                 }
 
                 StatusText = "正在检查卡上是否还有未被拷贝的素材…";
@@ -1107,19 +1439,32 @@ namespace AutoCardCopier.App.ViewModels.Pages
             var failures = new List<string>();
             try
             {
-                // 1. 解析目标、探测目标可用性并生成计划（全程 await，界面线程不阻塞）
-                StatusText = "正在检查目标目录并生成拷贝计划…";
+                // 1. 校验分组名称、探测目标并按项目生成计划（全程 await，界面线程不阻塞）
+                string validationError = ValidateGroups();
+                if (validationError != null)
+                {
+                    StatusText = validationError;
+                    HasResult = true;
+                    ResultSummary = validationError;
+                    return;
+                }
+
+                IList<ProjectGroupRequest> requests = BuildGroupRequests(scan);
+                StatusText = string.Format("正在检查目标目录并生成 {0} 个项目的拷贝计划…", requests.Count);
                 var planSetResult = await Services.Backup.BuildPlansAsync(
-                    scan, settings, context, TargetProbe.DefaultTimeoutMs, CancellationToken.None);
+                    requests, scan.RootPath, settings, TargetProbe.DefaultTimeoutMs, CancellationToken.None);
                 if (!planSetResult.Success)
                 {
                     StatusText = planSetResult.Message;
                     return;
                 }
                 BackupPlanSet planSet = planSetResult.Value;
-                IList<CopyPlan> plans = planSet.Plans;
+                IList<BackupUnit> units = planSet.Units;
+                var plans = new List<CopyPlan>();
+                foreach (BackupUnit eachUnit in units) { plans.Add(eachUnit.Plan); }
                 _currentPlans = plans;
-                CopyPlan plan = plans[0];
+                CopyPlan plan = units[0].Plan;
+                _currentContext = requests[0].Context;
 
                 // 不可用目标（离线硬盘、超时的网络路径）如实列出，稍后汇总为“部分成功”
                 foreach (TargetProbeResult unavailable in planSet.UnavailableTargets)
@@ -1128,14 +1473,11 @@ namespace AutoCardCopier.App.ViewModels.Pages
                 }
 
                 // 2. 预检（单目标时直接拦截；多目标时由协调器逐个检查，副目标失败不影响主目标）
-                PlanPreflight preflight = await Services.PlanBuilder.PreflightAsync(
-                    plan, TargetProbe.DefaultTimeoutMs, CancellationToken.None);
-                if (!preflight.CanProceed && planSet.UnavailableTargets.Count == 0)
+                // 空间与可写性由协调器按执行单元检查（目标可用性已在计划阶段探测过）
+                foreach (BackupUnit eachUnit in units)
                 {
-                    StatusText = preflight.Message;
-                    return;
+                    foreach (string warning in eachUnit.Plan.Warnings) { failures.Add("提示：" + warning); }
                 }
-                foreach (string warning in plan.Warnings) { failures.Add("提示：" + warning); }
 
                 // 任务开始即落一条记录，并写入断点续传计划文件（F12）
                 BeginTaskRecord(plan, item, context);
@@ -1161,28 +1503,26 @@ namespace AutoCardCopier.App.ViewModels.Pages
                 });
 
                 BackupResult backup = await Services.Backup.RunAsync(
-                    planSet, settings, copyProgress, _pauseToken, _cancellation.Token);
+                    planSet, scan, settings, copyProgress, _pauseToken, _cancellation.Token);
                 _currentBackup = backup;
 
-                CopyResult copyResult = backup.Primary == null || backup.Primary.Copy == null
-                    ? new CopyResult() : backup.Primary.Copy;
-                VerifyReport report = backup.Primary == null || backup.Primary.Verify == null
-                    ? new VerifyReport() : backup.Primary.Verify;
+                CopyResult copyResult = AggregateCopy(backup);
+                VerifyReport report = AggregateVerify(backup);
                 _currentCopyResult = copyResult;
                 _currentVerifyReport = report;
 
                 // 每个目标的失败与校验问题都要如实上报
-                foreach (BackupTargetResult target in backup.Targets)
+                foreach (BackupUnit eachUnit in backup.Units)
                 {
-                    if (!target.Succeeded) { failures.Add("目标未完成：" + target.DisplayName + " —— " + target.Message); }
-                    IList<CopyFailure> targetFailures = target.Copy == null ? new List<CopyFailure>() : target.Copy.Failures;
-                    foreach (CopyFailure failure in targetFailures)
+                    if (!eachUnit.Succeeded) { failures.Add("未完成：" + eachUnit.DisplayName + " —— " + eachUnit.Message); }
+                    IList<CopyFailure> unitFailures = eachUnit.Copy == null ? new List<CopyFailure>() : eachUnit.Copy.Failures;
+                    foreach (CopyFailure failure in unitFailures)
                     {
                         failures.Add("拷贝失败：" + failure.SourcePath + "（" + failure.Error + "）");
                     }
-                    if (target.Verify != null)
+                    if (eachUnit.Verify != null)
                     {
-                        foreach (FileVerifyFailure failure in target.Verify.Failures)
+                        foreach (FileVerifyFailure failure in eachUnit.Verify.Failures)
                         {
                             failures.Add("校验失败：" + failure.TargetPath + "（" + failure.Detail + "）");
                         }
@@ -1201,16 +1541,34 @@ namespace AutoCardCopier.App.ViewModels.Pages
                 }
 
                 // 5. 写入清单与项目元数据（每个目标各写一份，保证任意一块盘都能自描述）
-                string projectId = _currentProjectId ?? ProjectMeta.NewId();
-                _currentProjectId = projectId;
-                foreach (BackupTargetResult target in backup.Targets)
+                var projectIds = new Dictionary<int, string>();
+                var savedProjects = new HashSet<int>();
+                foreach (BackupUnit eachUnit in backup.Units)
                 {
-                    if (target.Plan == null) { continue; }
+                    if (eachUnit.Plan == null || eachUnit.Group == null) { continue; }
+
+                    string projectId;
+                    if (!projectIds.TryGetValue(eachUnit.ProjectIndex, out projectId))
+                    {
+                        projectId = ProjectMeta.NewId();
+                        projectIds[eachUnit.ProjectIndex] = projectId;
+                    }
+                    _currentProjectId = projectId;
+
                     var writeResult = Services.ManifestWriter.WriteProjectFiles(
-                        target.Plan, scan, context, settings, target.Copy, target.Verify, item.Card.Identity, projectId);
+                        eachUnit.Plan, scan, eachUnit.Group.Context, settings,
+                        eachUnit.Copy, eachUnit.Verify, item.Card.Identity, projectId);
                     if (!writeResult.Success)
                     {
-                        failures.Add("清单写入失败（" + target.Root + "）：" + writeResult.Message);
+                        failures.Add("清单写入失败（" + eachUnit.DisplayName + "）：" + writeResult.Message);
+                    }
+
+                    // 每个项目只在本地项目库写一条（取主目标单元）
+                    if (eachUnit.IsPrimaryTarget && savedProjects.Add(eachUnit.ProjectIndex))
+                    {
+                        ProjectMeta meta = Services.ManifestWriter.BuildProjectMeta(
+                            eachUnit.Plan, scan, eachUnit.Group.Context, eachUnit.Verify, item.Card.Identity, projectId);
+                        Services.ProjectLibrary.Save(meta);
                     }
                 }
 
@@ -1223,9 +1581,9 @@ namespace AutoCardCopier.App.ViewModels.Pages
                 CoverageReport coverage = await Task.Run(delegate
                 {
                     var copiedPaths = new List<string>();
-                    foreach (CopyPlan eachPlan in plans)
+                    foreach (BackupUnit eachUnit in units)
                     {
-                        foreach (CopyItem planItem in eachPlan.Items)
+                        foreach (CopyItem planItem in eachUnit.Plan.Items)
                         {
                             if (!copiedPaths.Contains(planItem.Source.FullPath)) { copiedPaths.Add(planItem.Source.FullPath); }
                         }
@@ -1250,11 +1608,12 @@ namespace AutoCardCopier.App.ViewModels.Pages
                     Services.PlanStore.Delete(_currentTaskId);
                 }
 
-                ResultSummary = string.Format("{0}；{1}；耗时 {2}，平均 {3}；{4}；{5}",
+                ResultSummary = string.Format("{0}；{1}；拷贝 {2} 个文件（{3}），跳过 {4} 个；覆盖检查：{5}",
                     allTargetsOk ? "✅ 拷贝与校验全部通过" : "⚠️ 存在未完成的目标或校验问题",
                     backup.Summary,
-                    Humanize.Duration(copyResult.Duration), Humanize.Speed(copyResult.AverageBytesPerSecond),
-                    report.Summary, coverage.Message);
+                    Humanize.Count(backup.TotalCopiedFiles), Humanize.Bytes(backup.TotalCopiedBytes),
+                    Humanize.Count(backup.TotalSkippedFiles),
+                    coverage.Message);
                 HasResult = true;
                 StatusText = "项目目录：" + plan.ProjectDirectory;
                 RefreshFormatState();

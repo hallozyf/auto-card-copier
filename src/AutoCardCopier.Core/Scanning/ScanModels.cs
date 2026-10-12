@@ -20,6 +20,12 @@ namespace AutoCardCopier.Core.Scanning
 
         /// <summary>素材类型。</summary>
         public MediaKind Kind { get; set; }
+
+        /// <summary>拍摄时间（本地时间；无法确定时为 null）。F13-A。</summary>
+        public DateTime? ShootTime { get; set; }
+
+        /// <summary>拍摄时间的来源（EXIF / 容器 / 文件时间 / 未知）。</summary>
+        public ShootTimeSource ShootTimeSource { get; set; }
     }
 
     /// <summary>扫描进度。</summary>
@@ -52,6 +58,24 @@ namespace AutoCardCopier.Core.Scanning
 
         /// <summary>本次实际遍历的顶层目录（用于界面显示与日志留痕，便于排查"漏扫"）。</summary>
         public IList<string> ScannedRoots { get; set; }
+
+        /// <summary>按拍摄日期分组的结果（F13-B）；单日卡通常只有一组。</summary>
+        public IList<MediaDayGroup> Groups { get; set; }
+
+        /// <summary>无法确定拍摄时间的文件数量。</summary>
+        public int UnknownTimeCount { get; set; }
+
+        /// <summary>拍摄日期数量（不含未知日期组）。</summary>
+        public int DayCount
+        {
+            get
+            {
+                int count = 0;
+                if (Groups == null) { return 0; }
+                foreach (MediaDayGroup group in Groups) { if (!group.IsUnknownDate) { count++; } }
+                return count;
+            }
+        }
 
         /// <summary>全部素材文件（不含被忽略的文件）。</summary>
         public IList<ScannedFile> Files { get; set; }

@@ -142,14 +142,29 @@ namespace AutoCardCopier.Core.Scanning
                 CurrentItem = string.Empty
             });
 
+            // F13-A：提取每个素材的拍摄时间（只读文件头；快速模式下直接用文件时间）
+            AssignShootTimes(result, settings, token, reporter);
+
+            // F13-B：按拍摄日期分组（未知时间单独成组）
+            result.Groups = MediaDayGrouper.Group(result.Files);
+            result.UnknownTimeCount = 0;
+            if (result.Groups != null)
+            {
+                foreach (MediaDayGroup group in result.Groups)
+                {
+                    if (group.IsUnknownDate) { result.UnknownTimeCount = group.TotalCount; }
+                }
+            }
+
             result.CameraModel = TryDetectCameraModel(result, token, reporter, filesScanned, bytesScanned);
             stopwatch.Stop();
             result.Duration = stopwatch.Elapsed;
 
-            _log.Info(string.Format("扫描完成：{0} 个文件，{1}，相机型号 {2}，跳过 {3} 个",
+            _log.Info(string.Format("扫描完成：{0} 个文件，{1}，相机型号 {2}，跳过 {3} 个，{4}",
                 result.TotalCount, Humanize.Bytes(result.TotalBytes),
                 string.IsNullOrEmpty(result.CameraModel) ? "未知" : result.CameraModel,
-                result.SkippedCount));
+                result.SkippedCount,
+                MediaDayGrouper.Describe(result.Groups)));
 
             return result;
         }
@@ -302,6 +317,50 @@ namespace AutoCardCopier.Core.Scanning
             {
                 result.LatestUtc = file.LastWriteTimeUtc;
             }
+        }
+
+        /// <summary>
+        /// 为每个素材提取拍摄时间（F13-A）。
+        /// 只读文件头；有界并发（默认 4）；快速模式下直接使用文件修改时间。
+        /// </summary>
+        private static void AssignShootTimes(ScanResult result, AppSettings settings,
+            CancellationToken token, ProgressThrottle reporter)
+        {
+            if (result.Files.Count == 0) { return; }
+
+            bool fastMode = settings != null && settings.TimestampMode == TimestampMode.Fast;
+            bool videoUseFileTime = settings != null && settings.VideoUseFileTime;
+
+            reporter.Report(new ScanProgress
+            {
+                Phase = fastMode ? "读取文件时间" : "读取拍摄时间",
+                FilesScanned = 0,
+                BytesScanned = 0,
+                CurrentItem = string.Empty
+            });
+
+            var options = new System.Threading.Tasks.ParallelOptions
+            {
+                MaxDegreeOfParallelism = 4,
+                CancellationToken = token
+            };
+
+            System.Threading.Tasks.Parallel.ForEach(result.Files, options, delegate (ScannedFile file)
+            {
+                token.ThrowIfCancellationRequested();
+
+                if (fastMode || file.Kind == MediaKind.Other)
+                {
+                    // 快速模式或旁挂文件：直接用文件时间，不解析内容
+                    file.ShootTime = file.LastWriteTimeUtc.ToLocalTime();
+                    file.ShootTimeSource = ShootTimeSource.FileTime;
+                    return;
+                }
+
+                ShootTimeResult read = MediaTimestampReader.Read(file.FullPath, file.Kind, videoUseFileTime);
+                file.ShootTime = read.Time;
+                file.ShootTimeSource = read.Source;
+            });
         }
 
         /// <summary>从少量照片文件中识别相机型号；识别不到返回空字符串。</summary>

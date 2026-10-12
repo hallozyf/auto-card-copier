@@ -64,13 +64,14 @@ namespace AutoCardCopier.Tests
                     settings.SecondaryTargetRoot = secondary.Path;
 
                     ScanResult scan = new MediaScanner(NullLog.Instance).Scan(card.Path, settings, null, CancellationToken.None);
-                    BackupPlanSet planSet = NewCoordinator().BuildPlansAsync(scan, settings, NewContext())
+                    BackupPlanSet planSet = NewCoordinator()
+                        .BuildPlansAsync(NewGroups(scan, "2026\\日1_测试"), scan.RootPath, settings)
                         .GetAwaiter().GetResult().Value;
 
-                    Assert.Equal(2, planSet.Plans.Count);
+                    Assert.Equal(2, planSet.Units.Count);
                     Assert.Equal(0, planSet.UnavailableTargets.Count);
-                    Assert.Equal(planSet.Plans[0].ProjectRelativePath, planSet.Plans[1].ProjectRelativePath);
-                    Assert.False(planSet.Plans[0].ProjectDirectory == planSet.Plans[1].ProjectDirectory);
+                    Assert.Equal(planSet.Units[0].Plan.ProjectRelativePath, planSet.Units[1].Plan.ProjectRelativePath);
+                    Assert.False(planSet.Units[0].Plan.ProjectDirectory == planSet.Units[1].Plan.ProjectDirectory);
                 }
             });
 
@@ -87,23 +88,25 @@ namespace AutoCardCopier.Tests
 
                     ScanResult scan = new MediaScanner(NullLog.Instance).Scan(card.Path, settings, null, CancellationToken.None);
                     var coordinator = NewCoordinator();
-                    BackupPlanSet planSet = coordinator.BuildPlansAsync(scan, settings, NewContext()).GetAwaiter().GetResult().Value;
+                    BackupPlanSet planSet = coordinator
+                        .BuildPlansAsync(NewGroups(scan, "2026\\日1_测试"), scan.RootPath, settings)
+                        .GetAwaiter().GetResult().Value;
 
-                    BackupResult result = coordinator.RunAsync(planSet, settings, null, new PauseToken(), CancellationToken.None)
+                    BackupResult result = coordinator.RunAsync(planSet, scan, settings, null, new PauseToken(), CancellationToken.None)
                         .GetAwaiter().GetResult();
 
                     Assert.True(result.AllSucceeded, result.Summary);
-                    Assert.Equal(2, result.Targets.Count);
-                    Assert.Contains("2 个目标", result.Summary);
+                    Assert.Equal(2, result.Units.Count);
+                    Assert.Contains("1 个项目全部完成", result.Summary);
 
-                    foreach (BackupTargetResult target in result.Targets)
+                    foreach (BackupUnit unit in result.Units)
                     {
                         int files;
                         long bytes;
-                        FixtureFactory.MeasureDirectory(target.Plan.ProjectDirectory, out files, out bytes);
+                        FixtureFactory.MeasureDirectory(unit.Plan.ProjectDirectory, out files, out bytes);
                         Assert.Equal(4, files);
                         Assert.Equal(scan.TotalBytes, bytes);
-                        Assert.True(target.Verify.AllPassed, target.Message);
+                        Assert.True(unit.Verify.AllPassed, unit.Message);
                     }
                 }
             });
@@ -121,19 +124,20 @@ namespace AutoCardCopier.Tests
 
                     ScanResult scan = new MediaScanner(NullLog.Instance).Scan(card.Path, settings, null, CancellationToken.None);
                     var coordinator = NewCoordinator();
-                    BackupPlanSet planSet = coordinator.BuildPlansAsync(scan, settings, NewContext()).GetAwaiter().GetResult().Value;
+                    BackupPlanSet planSet = coordinator
+                        .BuildPlansAsync(NewGroups(scan, "2026\\日1_测试"), scan.RootPath, settings)
+                        .GetAwaiter().GetResult().Value;
 
                     // 计划生成后让副目标消失，模拟移动硬盘被拔掉
                     Directory.Delete(secondary.Path, true);
 
-                    BackupResult result = coordinator.RunAsync(planSet, settings, null, new PauseToken(), CancellationToken.None)
+                    BackupResult result = coordinator.RunAsync(planSet, scan, settings, null, new PauseToken(), CancellationToken.None)
                         .GetAwaiter().GetResult();
 
                     Assert.False(result.AllSucceeded);
                     Assert.True(result.AnySucceeded, "主目标应当已经拷贝成功");
-                    Assert.Equal(1, result.FailedTargets().Count);
-                    Assert.Contains("部分目标成功", result.Summary);
-                    Assert.True(result.Primary.Succeeded);
+                    Assert.Equal(1, result.FailedUnits().Count);
+                    Assert.True(result.PrimaryUnit.Succeeded);
                 }
             });
 
@@ -149,17 +153,19 @@ namespace AutoCardCopier.Tests
 
                     ScanResult scan = new MediaScanner(NullLog.Instance).Scan(card.Path, settings, null, CancellationToken.None);
                     var coordinator = NewCoordinator();
-                    BackupPlanSet planSet = coordinator.BuildPlansAsync(scan, settings, NewContext()).GetAwaiter().GetResult().Value;
+                    BackupPlanSet planSet = coordinator
+                        .BuildPlansAsync(NewGroups(scan, "2026\\日1_测试"), scan.RootPath, settings)
+                        .GetAwaiter().GetResult().Value;
 
-                    Assert.Equal(1, planSet.Plans.Count);
+                    Assert.Equal(1, planSet.Units.Count);
                     Assert.Equal(1, planSet.UnavailableTargets.Count);
 
-                    BackupResult result = coordinator.RunAsync(planSet, settings, null, new PauseToken(), CancellationToken.None)
+                    BackupResult result = coordinator.RunAsync(planSet, scan, settings, null, new PauseToken(), CancellationToken.None)
                         .GetAwaiter().GetResult();
 
-                    Assert.True(result.Primary.Succeeded);
+                    Assert.True(result.PrimaryUnit.Succeeded);
                     Assert.False(result.AllSucceeded, "存在不可用目标时不能算全部成功");
-                    Assert.Equal(1, result.FailedTargets().Count);
+                    Assert.Equal(1, result.FailedUnits().Count);
                 }
             });
 
@@ -387,18 +393,34 @@ namespace AutoCardCopier.Tests
                     var coordinator = NewCoordinator();
 
                     var stopwatch = Stopwatch.StartNew();
-                    OperationResult<BackupPlanSet> result = coordinator.BuildPlansAsync(scan, settings, NewContext(), 2000)
+                    OperationResult<BackupPlanSet> result = coordinator
+                        .BuildPlansAsync(NewGroups(scan, "2026\\日1_测试"), scan.RootPath, settings, 2000)
                         .GetAwaiter().GetResult();
                     stopwatch.Stop();
 
                     Assert.True(result.Success, result.Message);
-                    Assert.Equal(1, result.Value.Plans.Count);
+                    Assert.Equal(1, result.Value.Units.Count);
                     Assert.Equal(1, result.Value.UnavailableTargets.Count);
-                    Assert.Equal(400, result.Value.Plans[0].TotalCount);
+                    Assert.Equal(400, result.Value.Units[0].Plan.TotalCount);
                     Assert.True(stopwatch.ElapsedMilliseconds < 4000,
                         "计划阶段必须在探测超时附近返回，实际 " + stopwatch.ElapsedMilliseconds + " ms");
                 }
             });
+        }
+
+        /// <summary>构造一个"单项目"分组请求（测试用）。</summary>
+        private static IList<ProjectGroupRequest> NewGroups(ScanResult scan, string relativeDirectory)
+        {
+            return new List<ProjectGroupRequest>
+            {
+                new ProjectGroupRequest
+                {
+                    Context = NewContext(),
+                    Files = scan.Files,
+                    RelativeDirectory = relativeDirectory,
+                    DisplayName = "测试项目"
+                }
+            };
         }
 
         private static BackupCoordinator NewCoordinator()

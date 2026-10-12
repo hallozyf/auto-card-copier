@@ -52,6 +52,15 @@ namespace AutoCardCopier.Core.Settings
         SizeAndSample = 4
     }
 
+    /// <summary>拍摄时间提取模式（F13-A）。</summary>
+    public enum TimestampMode
+    {
+        /// <summary>精确模式：读取 EXIF 与视频容器时间，读不到再回退文件时间。</summary>
+        Precise = 0,
+        /// <summary>快速模式：只用文件修改时间，适合超大卡且对日期精度要求不高的场景。</summary>
+        Fast = 1
+    }
+
     /// <summary>界面主题。</summary>
     public enum ThemeMode
     {
@@ -124,6 +133,13 @@ namespace AutoCardCopier.Core.Settings
         [DataMember(Name = "preserveTimestamps", Order = 14)]
         public bool PreserveTimestamps { get; set; }
 
+        /// <summary>
+        /// 同时执行的项目数（多日分组时，多个项目可以并行拷贝）。
+        /// 1 表示串行；默认 2；上限 4，避免磁头争抢与资源耗尽。
+        /// </summary>
+        [DataMember(Name = "parallelProjects", Order = 15)]
+        public int ParallelProjects { get; set; }
+
         // ---------- 校验 ----------
 
         /// <summary>校验档位。</summary>
@@ -162,6 +178,17 @@ namespace AutoCardCopier.Core.Settings
         /// </summary>
         [DataMember(Name = "scanWholeCardRoot", Order = 35)]
         public bool ScanWholeCardRoot { get; set; }
+
+        /// <summary>
+        /// 视频是否直接使用文件修改时间作为拍摄时间。
+        /// 默认关闭（优先读容器时间）；个别相机容器时间不准时可打开。
+        /// </summary>
+        [DataMember(Name = "videoUseFileTime", Order = 36)]
+        public bool VideoUseFileTime { get; set; }
+
+        /// <summary>拍摄时间提取模式。</summary>
+        [DataMember(Name = "timestampMode", Order = 37)]
+        public TimestampMode TimestampMode { get; set; }
 
         // ---------- 界面 ----------
 
@@ -219,6 +246,9 @@ namespace AutoCardCopier.Core.Settings
                 VerifyVideo = true,
                 RequireDcimFolder = false,
                 ScanWholeCardRoot = true,
+                VideoUseFileTime = false,
+                TimestampMode = TimestampMode.Precise,
+                ParallelProjects = 2,
                 IgnoredDirectories = new[]
                 {
                     "System Volume Information", "$RECYCLE.BIN", ".Trashes", ".Spotlight-V100", ".fseventsd"
@@ -245,6 +275,7 @@ namespace AutoCardCopier.Core.Settings
             if (SchemaVersion <= 0) { SchemaVersion = 1; }
             if (string.IsNullOrWhiteSpace(NameTemplate)) { NameTemplate = "{yyyy}/{yyyy-MM-dd}_{type}_{location}"; }
             MaxParallelism = Clamp(MaxParallelism, 1, 8);
+            ParallelProjects = Clamp(ParallelProjects, 1, 4);
             BufferSizeKb = Clamp(BufferSizeKb, 64, 16384);
             AutoFormatCountdownSec = Clamp(AutoFormatCountdownSec, 3, 120);
             LogRetentionDays = Clamp(LogRetentionDays, 7, 3650);

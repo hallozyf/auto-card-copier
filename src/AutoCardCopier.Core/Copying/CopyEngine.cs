@@ -126,8 +126,13 @@ namespace AutoCardCopier.Core.Copying
         /// <summary>
         /// 执行拷贝计划。
         /// </summary>
+        /// <param name="sharedGate">
+        /// 可选的共享并发闸门：多项目并行执行时由协调器传入，用于在所有项目之间统一限制文件级并发，
+        /// 避免"项目并行 × 文件并行"导致并发数乘积暴涨。
+        /// </param>
         public async Task<CopyResult> RunAsync(CopyPlan plan, AppSettings settings,
-            IProgress<CopyProgress> progress, PauseToken pause, CancellationToken token)
+            IProgress<CopyProgress> progress, PauseToken pause, CancellationToken token,
+            SemaphoreSlim sharedGate = null)
         {
             if (plan == null) { throw new ArgumentNullException("plan"); }
             settings = settings ?? AppSettings.CreateDefault();
@@ -183,8 +188,10 @@ namespace AutoCardCopier.Core.Copying
                 Directory.CreateDirectory(PathUtil.Extend(plan.ProjectDirectory));
 
                 int parallelism = Math.Max(1, Math.Min(8, settings.MaxParallelism));
-                using (var gate = new SemaphoreSlim(parallelism))
+                // 未提供共享闸门时，为本计划单独创建一个（单项目场景）；共享闸门由协调器负责释放
+                using (SemaphoreSlim ownGate = sharedGate == null ? new SemaphoreSlim(parallelism) : null)
                 {
+                    SemaphoreSlim gate = sharedGate ?? ownGate;
                     var tasks = new List<Task>();
                     foreach (CopyItem item in pending)
                     {

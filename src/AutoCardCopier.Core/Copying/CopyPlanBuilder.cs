@@ -105,6 +105,58 @@ namespace AutoCardCopier.Core.Copying
         }
 
         /// <summary>
+        /// 为指定文件集合生成拷贝计划（多日分组时，每个项目调用一次）。
+        /// 同样是纯内存计算，不访问文件系统。
+        /// </summary>
+        public OperationResult<CopyPlan> BuildForFiles(IList<ScannedFile> files, string sourceRoot,
+            AppSettings settings, ProjectContext context, string targetRoot, string resolvedProjectDirectory)
+        {
+            if (files == null || files.Count == 0) { return OperationResult.Fail<CopyPlan>("该项目没有素材文件"); }
+            if (settings == null) { settings = AppSettings.CreateDefault(); }
+            if (context == null) { context = ProjectContext.CreateDefault(); }
+            if (string.IsNullOrWhiteSpace(targetRoot)) { return OperationResult.Fail<CopyPlan>("尚未设置素材目标目录"); }
+
+            try
+            {
+                var plan = new CopyPlan
+                {
+                    SourceRoot = sourceRoot,
+                    TargetRoot = targetRoot,
+                    ProjectDirectory = resolvedProjectDirectory,
+                    ProjectRelativePath = MakeRelativePath(targetRoot, resolvedProjectDirectory),
+                    ProjectName = Path.GetFileName(resolvedProjectDirectory.TrimEnd(Path.DirectorySeparatorChar))
+                };
+
+                if (PathUtil.IsSubPathOf(sourceRoot, resolvedProjectDirectory))
+                {
+                    return OperationResult.Fail<CopyPlan>("目标目录位于源卡片内部：" + resolvedProjectDirectory);
+                }
+
+                var usedTargets = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (ScannedFile file in files)
+                {
+                    string subFolder = MediaClassifier.ResolveSubFolder(file.Kind, file.FullPath, settings.SubFolderMode);
+                    string fileName = Path.GetFileName(file.FullPath);
+                    string targetPath = string.IsNullOrEmpty(subFolder)
+                        ? Path.Combine(resolvedProjectDirectory, fileName)
+                        : Path.Combine(Path.Combine(resolvedProjectDirectory, subFolder.Replace('/', Path.DirectorySeparatorChar)), fileName);
+
+                    targetPath = EnsureUniqueTarget(targetPath, usedTargets);
+                    plan.Items.Add(new CopyItem { Source = file, TargetPath = targetPath, Action = CopyAction.Copy });
+                }
+
+                _log.Info(string.Format("项目计划已生成：{0} 个文件，{1}，目标目录 {2}",
+                    plan.TotalCount, Humanize.Bytes(plan.TotalBytes), plan.ProjectDirectory));
+                return OperationResult.Ok(plan);
+            }
+            catch (Exception ex)
+            {
+                _log.Error("生成项目计划失败", ex);
+                return OperationResult.Fail<CopyPlan>("生成项目计划失败：" + ex.Message, ex);
+            }
+        }
+
+        /// <summary>
         /// 解析最终的项目目录（含冲突处理）。本方法会访问文件系统，
         /// 必须在后台线程调用，不得在界面线程直接调用。
         /// </summary>
