@@ -19,6 +19,8 @@ namespace AutoCardCopier.Tests
         {
             yield return Case("F14-C 清单外置：素材目录保持纯净", StorageExternalization);
 
+            yield return Case("F14-A 历史素材导入：识别最上层目录并入库", ImportLibrary);
+
             yield return Case("F13-A 读取 EXIF 原始拍摄时间", () =>
             {
                 using (var temp = new TempDirectory("exif"))
@@ -204,6 +206,52 @@ namespace AutoCardCopier.Tests
                     }
                 }
             });
+        }
+
+        /// <summary>F14-A：以"包含素材的最上层目录"为一个项目，可入库且不重复导入。</summary>
+        public static void ImportLibrary()
+        {
+            using (var root = new TempDirectory("lib"))
+            using (var data = new TempDirectory("data"))
+            {
+                string wedding = Path.Combine(root.Path, "2025", "婚礼2001");
+                Directory.CreateDirectory(Path.Combine(wedding, "照片"));
+                Directory.CreateDirectory(Path.Combine(wedding, "视频"));
+                string a = Path.Combine(wedding, "照片", "a.jpg");
+                string b = Path.Combine(wedding, "照片", "b.jpg");
+                string c = Path.Combine(wedding, "视频", "c.mp4");
+                FixtureFactory.WriteFile(a, 128);
+                FixtureFactory.WriteFile(b, 128);
+                FixtureFactory.WriteFile(c, 256);
+                File.SetLastWriteTime(a, new DateTime(2025, 5, 1, 10, 0, 0));
+                File.SetLastWriteTime(b, new DateTime(2025, 5, 1, 12, 0, 0));
+                File.SetLastWriteTime(c, new DateTime(2025, 5, 2, 9, 0, 0));
+
+                string portrait = Path.Combine(root.Path, "2025", "人像");
+                Directory.CreateDirectory(portrait);
+                string d = Path.Combine(portrait, "d.jpg");
+                FixtureFactory.WriteFile(d, 64);
+                File.SetLastWriteTime(d, new DateTime(2025, 6, 1, 8, 0, 0));
+
+                var library = new ProjectLibrary(data.Path, NullLog.Instance);
+                IList<LibraryCandidate> found = LibraryImporter.Scan(root.Path, 3, library, NullLog.Instance, false);
+                Assert.Equal(2, found.Count);
+
+                LibraryCandidate weddingItem = null;
+                foreach (LibraryCandidate item in found) { if (item.Name == "婚礼2001") { weddingItem = item; } }
+                Assert.True(weddingItem != null, "应识别出 婚礼2001 项目");
+                Assert.Equal(3, weddingItem.TotalCount);
+                Assert.Equal("2025-05-01", weddingItem.StartDate);
+                Assert.Equal("2025-05-02", weddingItem.EndDate);
+
+                Assert.Equal(2, LibraryImporter.Import(found, library, NullLog.Instance, "import", "北京", "婚礼"));
+
+                IList<LibraryCandidate> again = LibraryImporter.Scan(root.Path, 3, library, NullLog.Instance, false);
+                int imported = 0;
+                foreach (LibraryCandidate item in again) { if (item.IsImported) { imported++; } }
+                Assert.Equal(2, imported);
+                Assert.Equal(0, LibraryImporter.Import(again, library, NullLog.Instance));
+            }
         }
 
         /// <summary>F14-C：校验清单写入应用目录，素材目录不留任何软件文件。</summary>
