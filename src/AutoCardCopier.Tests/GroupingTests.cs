@@ -17,6 +17,8 @@ namespace AutoCardCopier.Tests
     {
         public static IEnumerable<KeyValuePair<string, Action>> Cases()
         {
+            yield return Case("F14-C 清单外置：素材目录保持纯净", StorageExternalization);
+
             yield return Case("F13-A 读取 EXIF 原始拍摄时间", () =>
             {
                 using (var temp = new TempDirectory("exif"))
@@ -202,6 +204,53 @@ namespace AutoCardCopier.Tests
                     }
                 }
             });
+        }
+
+        /// <summary>F14-C：校验清单写入应用目录，素材目录不留任何软件文件。</summary>
+        public static void StorageExternalization()
+        {
+            using (var data = new TempDirectory("data"))
+            using (var target = new TempDirectory("target"))
+            {
+                AppSettings settings = AppSettings.CreateDefault();
+                settings.PrimaryTargetRoot = target.Path;
+                settings.WriteSelfDescribingFiles = false;
+
+                var log = NullLog.Instance;
+                var writer = new AutoCardCopier.Core.Copying.ManifestWriter(data.Path, log);
+
+                var plan = new CopyPlan
+                {
+                    TargetRoot = target.Path,
+                    ProjectDirectory = Path.Combine(target.Path, "2026", "测试项目"),
+                    ProjectRelativePath = "2026\\测试项目",
+                    ProjectName = "测试项目"
+                };
+                Directory.CreateDirectory(plan.ProjectDirectory);
+                plan.Items.Add(new CopyItem
+                {
+                    Source = new ScannedFile { FullPath = Path.Combine(plan.ProjectDirectory, "IMG_0001.JPG"), RelativePath = "IMG_0001.JPG", Length = 10, Kind = MediaKind.Photo, ShootTime = new DateTime(2026, 3, 10, 9, 0, 0) },
+                    TargetPath = Path.Combine(plan.ProjectDirectory, "IMG_0001.JPG"),
+                    Action = CopyAction.Copy
+                });
+
+                var copyResult = new CopyResult();
+                copyResult.EnsurePathCollections();
+                var report = new VerifyReport();
+
+                var result = writer.WriteProjectFiles(plan, null, new ProjectContext { ShootDate = new DateTime(2026, 3, 10) },
+                    settings, copyResult, report, null, "proj-test-001");
+                Assert.True(result.Success, result.Message);
+
+                // 素材目录里不应出现软件文件
+                string[] leftovers = Directory.GetFiles(plan.ProjectDirectory);
+                Assert.Equal(0, leftovers.Length);
+
+                // 应用数据目录里应当有清单与日志
+                string manifest = Path.Combine(data.Path, "manifests", "proj-test-001.manifest.json");
+                Assert.True(File.Exists(manifest), "清单应写入应用数据目录：" + manifest);
+                Assert.True(File.Exists(Path.Combine(data.Path, "manifests", "proj-test-001.copylog.txt")), "拷贝日志应写入应用数据目录");
+            }
         }
 
         private static ScannedFile NewFile(string name, DateTime? shootTime, long length)

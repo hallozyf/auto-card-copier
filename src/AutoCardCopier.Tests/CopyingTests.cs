@@ -315,7 +315,10 @@ namespace AutoCardCopier.Tests
 
                     var identity = new CardIdentity { SerialNumber = 0xABCD1234, Label = "EOS_DIGITAL", TotalBytes = 128L * 1024 * 1024 * 1024 };
                     string projectId = ProjectMeta.NewId();
-                    var writer = new ManifestWriter(NullLog.Instance);
+                    // F14-C：默认不写素材目录，此处显式开启以验证自描述文件仍可用
+                    settings.WriteSelfDescribingFiles = true;
+                    // 清单目录用临时目录，避免写入真实用户目录
+                    var writer = new ManifestWriter(target.Path, NullLog.Instance);
                     var writeResult = writer.WriteProjectFiles(plan, scan, context, settings, copy, verify, identity, projectId);
                     Assert.True(writeResult.Success, writeResult.Message);
 

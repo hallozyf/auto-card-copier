@@ -90,10 +90,26 @@ namespace AutoCardCopier.Core.Copying
         public const string CopyLogFileName = "_copy.log";
 
         private readonly ILog _log;
+        private readonly string _dataDirectory;
 
-        public ManifestWriter(ILog log)
+        /// <summary>以应用数据目录为清单存放位置（F14-C）。</summary>
+        public ManifestWriter(string dataDirectory, ILog log)
         {
             _log = log ?? NullLog.Instance;
+            _dataDirectory = dataDirectory;
+        }
+
+        /// <summary>兼容旧调用：清单放入默认应用数据目录。</summary>
+        public ManifestWriter(ILog log) : this(null, log) { }
+
+        private string DataDirectory
+        {
+            get
+            {
+                return string.IsNullOrEmpty(_dataDirectory)
+                    ? AutoCardCopier.Core.Infrastructure.AppPaths.DefaultDataDirectory
+                    : _dataDirectory;
+            }
         }
 
         /// <summary>
@@ -110,12 +126,26 @@ namespace AutoCardCopier.Core.Copying
                 ManifestModel manifest = BuildManifest(plan, scan, context, settings, copyResult, verifyReport, cardIdentity, projectId);
                 ProjectMeta meta = BuildProjectMeta(plan, scan, context, verifyReport, cardIdentity, projectId);
 
-                JsonStore.WriteAllTextAtomic(Path.Combine(plan.ProjectDirectory, ManifestFileName), JsonStore.Serialize(manifest));
-                JsonStore.WriteAllTextAtomic(Path.Combine(plan.ProjectDirectory, ProjectFileName), JsonStore.Serialize(meta));
-                JsonStore.WriteAllTextAtomic(Path.Combine(plan.ProjectDirectory, CopyLogFileName), BuildCopyLog(plan, copyResult, verifyReport, cardIdentity));
+                string copyLog = BuildCopyLog(plan, copyResult, verifyReport, cardIdentity);
 
-                _log.Info("已写入项目元数据与校验清单：" + plan.ProjectDirectory);
-                return OperationResult.Ok("已写入项目元数据与校验清单");
+                // 默认：清单与日志存放到应用数据目录，素材目录保持纯净（F14-C）
+                string manifestDirectory = AutoCardCopier.Core.Infrastructure.AppPaths.ManifestsDirectory(DataDirectory);
+                string safeId = string.IsNullOrWhiteSpace(projectId) ? "unknown" : projectId;
+                JsonStore.WriteAllTextAtomic(Path.Combine(manifestDirectory, safeId + ".manifest.json"), JsonStore.Serialize(manifest));
+                JsonStore.WriteAllTextAtomic(Path.Combine(manifestDirectory, safeId + ".copylog.txt"), copyLog);
+
+                // 可选：同时在素材目录写入自描述文件，便于脱离软件后仍可自解释
+                bool selfDescribing = settings != null && settings.WriteSelfDescribingFiles;
+                if (selfDescribing)
+                {
+                    JsonStore.WriteAllTextAtomic(Path.Combine(plan.ProjectDirectory, ManifestFileName), JsonStore.Serialize(manifest));
+                    JsonStore.WriteAllTextAtomic(Path.Combine(plan.ProjectDirectory, ProjectFileName), JsonStore.Serialize(meta));
+                    JsonStore.WriteAllTextAtomic(Path.Combine(plan.ProjectDirectory, CopyLogFileName), copyLog);
+                }
+
+                _log.Info(string.Format("已写入校验清单：{0}（素材目录{1}）", manifestDirectory,
+                    selfDescribing ? "同时写入自描述文件" : "不写入任何文件"));
+                return OperationResult.Ok(selfDescribing ? "已写入校验清单与自描述文件" : "已写入校验清单（素材目录保持纯净）");
             }
             catch (Exception ex)
             {

@@ -190,6 +190,13 @@ namespace AutoCardCopier.Core.Settings
         [DataMember(Name = "timestampMode", Order = 37)]
         public TimestampMode TimestampMode { get; set; }
 
+        /// <summary>
+        /// 是否同时在素材目录写入自描述文件（_project.json / _manifest.json / _copy.log）。
+        /// 默认关闭：素材目录保持纯净，元数据只保存在应用数据目录（F14-C）。
+        /// </summary>
+        [DataMember(Name = "writeSelfDescribingFiles", Order = 38)]
+        public bool WriteSelfDescribingFiles { get; set; }
+
         // ---------- 界面 ----------
 
         /// <summary>主题。</summary>
@@ -247,6 +254,7 @@ namespace AutoCardCopier.Core.Settings
                 RequireDcimFolder = false,
                 ScanWholeCardRoot = true,
                 VideoUseFileTime = false,
+                WriteSelfDescribingFiles = false,
                 TimestampMode = TimestampMode.Precise,
                 ParallelProjects = 2,
                 IgnoredDirectories = new[]

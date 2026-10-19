@@ -112,7 +112,7 @@ namespace AutoCardCopier.App
             services.CardDetector = new CardDetector(services.Logger, pollSeconds: 3);
             services.PlanBuilder = new CopyPlanBuilder(services.Logger);
             services.CopyEngine = new CopyEngine(services.Logger);
-            services.ManifestWriter = new ManifestWriter(services.Logger);
+            services.ManifestWriter = new ManifestWriter(services.DataDirectory, services.Logger);
             services.Backup = new BackupCoordinator(services.PlanBuilder, services.CopyEngine, services.Logger);
             services.PlanStore = new TaskPlanStore(AppPaths.PlanDirectory(services.DataDirectory), services.Logger);
             services.Presets = new PresetsStore(AppPaths.PresetsFile(services.DataDirectory), services.Logger);

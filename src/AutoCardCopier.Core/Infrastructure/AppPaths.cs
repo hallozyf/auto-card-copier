@@ -75,6 +75,21 @@ namespace AutoCardCopier.Core.Infrastructure
         /// <summary>项目库目录。</summary>
         public static string ProjectsDirectory(string dataDirectory) { return Path.Combine(dataDirectory, "projects"); }
 
+    /// <summary>校验清单与拷贝日志目录（F14-C：不再写入素材目录）。</summary>
+    public static string ManifestsDirectory(string dataDirectory)
+    {
+        string directory = Path.Combine(dataDirectory, "manifests");
+        try { Directory.CreateDirectory(directory); } catch (Exception) { }
+        return directory;
+    }
+
+    /// <summary>某个项目的校验清单文件路径。</summary>
+    public static string ManifestFile(string dataDirectory, string projectId)
+    {
+        string safe = string.IsNullOrWhiteSpace(projectId) ? "unknown" : projectId;
+        return Path.Combine(ManifestsDirectory(dataDirectory), safe + ".manifest.json");
+    }
+
         /// <summary>设置文件路径。</summary>
         public static string SettingsFile(string dataDirectory) { return Path.Combine(dataDirectory, "settings.json"); }
 

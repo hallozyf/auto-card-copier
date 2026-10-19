@@ -13,6 +13,36 @@ namespace AutoCardCopier.Core.Projects
     [DataContract(Name = "project")]
     public sealed class ProjectMeta
     {
+        /// <summary>起始日期（yyyy-MM-dd）；单日项目与 ShootDate 相同（F14-D）。</summary>
+        [DataMember(Name = "startDate", Order = 50)]
+        public string StartDate { get; set; }
+
+        /// <summary>终止日期（yyyy-MM-dd）；单日项目与 ShootDate 相同。</summary>
+        [DataMember(Name = "endDate", Order = 51)]
+        public string EndDate { get; set; }
+
+        /// <summary>来源：create（新建）/ import（历史导入）/ append（追加）/ migrate（旧文件迁移）。</summary>
+        [DataMember(Name = "source", Order = 52)]
+        public string Source { get; set; }
+
+        /// <summary>最近一次校验时间（ISO）。</summary>
+        [DataMember(Name = "lastVerifiedAt", Order = 53)]
+        public string LastVerifiedAt { get; set; }
+
+        /// <summary>导入布局：flat（合并放一起）/ byday（一天一个文件夹）。</summary>
+        [DataMember(Name = "importLayout", Order = 54)]
+        public string ImportLayout { get; set; }
+
+        /// <summary>是否跨多天项目。</summary>
+        public bool IsMultiDay
+        {
+            get
+            {
+                return !string.IsNullOrEmpty(StartDate) && !string.IsNullOrEmpty(EndDate)
+                       && string.CompareOrdinal(StartDate, EndDate) < 0;
+            }
+        }
+
         [DataMember(Name = "schemaVersion", Order = 0)]
         public int SchemaVersion { get; set; }
 
