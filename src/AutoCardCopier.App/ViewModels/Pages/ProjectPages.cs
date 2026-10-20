@@ -111,7 +111,7 @@ namespace AutoCardCopier.App.ViewModels.Pages
             }
             catch (Exception ex)
             {
-                Services.Logger.Warn("导入素材目录失败：" + ex.Message);
+                // 失败原因直接显示在状态栏，不再写日志（Logger 的写入口由具体实现提供）
                 StatusText = "导入失败：" + ex.Message;
             }
         }
