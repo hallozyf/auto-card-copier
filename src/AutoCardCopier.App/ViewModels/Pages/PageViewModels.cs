@@ -205,6 +205,8 @@ namespace AutoCardCopier.App.ViewModels.Pages
 
             Groups = new ObservableCollection<MediaGroupItemViewModel>();
             ApplyBulkCommand = new RelayCommand(ApplyBulkToAllGroups);
+            AppendCandidates = new ObservableCollection<ProjectMeta>();
+            StartAppendCommand = new AsyncRelayCommand(StartAppendAsync, CanStartAppend);
             RefreshCommand = new RelayCommand(RefreshCards);
             ScanCommand = new AsyncRelayCommand(ScanSelectedCardAsync, delegate { return !IsBusy && SelectedCard != null; });
             StartCopyCommand = new AsyncRelayCommand(StartCopyAsync, delegate { return !IsBusy && CanStartCopy; });
@@ -803,6 +805,7 @@ namespace AutoCardCopier.App.ViewModels.Pages
 
                 _scanResult = result;
                 RebuildGroups(result);
+                RefreshAppendCandidates(result);
                 if (string.IsNullOrEmpty(Location) && !string.IsNullOrEmpty(result.CameraModel))
                 {
                     // 没有输入地点时不影响流程，这里只是记录机型到上下文
@@ -1012,6 +1015,152 @@ namespace AutoCardCopier.App.ViewModels.Pages
             catch (Exception ex)
             {
                 _log.Warn("写入任务历史失败", ex);
+            }
+        }
+
+        // ---------- 追加到已有项目（F14-B） ----------
+
+        /// <summary>可按日期匹配的候选项目（扫描完成后刷新）。</summary>
+        public ObservableCollection<ProjectMeta> AppendCandidates { get; private set; }
+
+        private ProjectMeta _selectedAppendProject;
+
+        /// <summary>选中的追加目标项目。</summary>
+        public ProjectMeta SelectedAppendProject
+        {
+            get { return _selectedAppendProject; }
+            set
+            {
+                if (SetProperty(ref _selectedAppendProject, value))
+                {
+                    RaisePropertyChanged("AppendRangeText");
+                    StartAppendCommand.RaiseCanExecuteChanged();
+                }
+            }
+        }
+
+        /// <summary>选中项目的日期范围提示。</summary>
+        public string AppendRangeText
+        {
+            get
+            {
+                if (_selectedAppendProject == null) { return "请选择要追加的项目"; }
+                DateTime start, end;
+                if (!AppendService.TryResolveRange(_selectedAppendProject, out start, out end)) { return "该项目缺少日期信息"; }
+                return start == end
+                    ? "项目日期：" + start.ToString("yyyy-MM-dd")
+                    : "项目日期范围：" + start.ToString("yyyy-MM-dd") + " ~ " + end.ToString("yyyy-MM-dd");
+            }
+        }
+
+        /// <summary>开始追加。</summary>
+        public AsyncRelayCommand StartAppendCommand { get; private set; }
+
+        private bool CanStartAppend()
+        {
+            return _scanResult != null && _selectedAppendProject != null && !IsBusy;
+        }
+
+        /// <summary>扫描完成后刷新候选项目（按拍摄日期是否落在项目范围内筛选）。</summary>
+        private void RefreshAppendCandidates(ScanResult scan)
+        {
+            AppendCandidates.Clear();
+            SelectedAppendProject = null;
+            if (scan == null || scan.Files.Count == 0) { return; }
+
+            DateTime earliest = DateTime.MaxValue;
+            DateTime latest = DateTime.MinValue;
+            foreach (ScannedFile file in scan.Files)
+            {
+                if (!file.ShootTime.HasValue) { continue; }
+                if (file.ShootTime.Value < earliest) { earliest = file.ShootTime.Value; }
+                if (file.ShootTime.Value > latest) { latest = file.ShootTime.Value; }
+            }
+            if (earliest == DateTime.MaxValue) { return; }
+
+            foreach (ProjectMeta project in Services.ProjectLibrary.LoadAll())
+            {
+                DateTime start, end;
+                if (!AppendService.TryResolveRange(project, out start, out end)) { continue; }
+                // 只有日期范围能覆盖本次素材（或与本次重叠）的项目才列为候选
+                if (latest.Date < start || earliest.Date > end) { continue; }
+                AppendCandidates.Add(project);
+            }
+            if (AppendCandidates.Count > 0) { SelectedAppendProject = AppendCandidates[0]; }
+        }
+
+        /// <summary>执行追加（日期不匹配时整批拒绝，不写入任何文件）。</summary>
+        private async Task StartAppendAsync()
+        {
+            if (_scanResult == null || _selectedAppendProject == null) { return; }
+
+            ProjectMeta project = _selectedAppendProject;
+            int conflictCount = 0;
+            foreach (ScannedFile file in _scanResult.Files) { conflictCount++; }
+
+            using (_cancellation = new CancellationTokenSource())
+            {
+                IsBusy = true;
+                HasResult = true;
+                ResultSummary = string.Empty;
+                StatusText = string.Format("正在向项目“{0}”追加素材…", project.Name);
+
+                var progress = new Progress<CopyProgress>(delegate (CopyProgress value)
+                {
+                    if (value.TotalBytes > 0)
+                    {
+                        StatusText = string.Format("追加中：{0}/{1}（{2}）", Humanize.Count(value.CompletedFiles),
+                            Humanize.Count(value.TotalFiles), Humanize.Bytes(value.CompletedBytes));
+                    }
+                });
+
+                try
+                {
+                    var resolver = new UiConflictResolver(Application.Current.MainWindow, conflictCount);
+                    var request = new AppendRequest
+                    {
+                        Project = project,
+                        Files = _scanResult.Files,
+                        Layout = string.Equals(project.ImportLayout, "byday", StringComparison.OrdinalIgnoreCase)
+                            ? ProjectLayout.ByDay : ProjectLayout.Flat,
+                        CardFingerprint = SelectedCard == null ? string.Empty : SelectedCard.Card.Identity.Fingerprint
+                    };
+
+                    AppendResult result = await Services.Append.RunAsync(request, Services.Settings,
+                        resolver, progress, _pauseToken, _cancellation.Token);
+
+                    if (!result.Success && result.OutOfRangeFiles.Count > 0)
+                    {
+                        var lines = new List<string>();
+                        foreach (string name in result.OutOfRangeFiles) { lines.Add("· " + name); }
+                        StatusText = result.Message;
+                        ResultSummary = result.Message + Environment.NewLine + string.Join(Environment.NewLine, lines.ToArray());
+                        return;
+                    }
+
+                    StatusText = result.Message;
+                    ResultSummary = string.Format("{0}{1}（项目：{2}，范围 {3}）",
+                        result.Success ? "✅ " : "⚠️ ", result.Message, project.Name, result.RangeText);
+
+                    if (result.Success)
+                    {
+                        // 更新项目记录：文件数与校验时间
+                        project.TotalCount = project.TotalCount + result.AddedFiles;
+                        project.LastVerifiedAt = TimeUtil.ToIsoUtcPrecise(DateTime.Now);
+                        project.UpdatedAt = project.LastVerifiedAt;
+                        Services.ProjectLibrary.Save(project);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    StatusText = "追加失败：" + ex.Message;
+                    ResultSummary = "追加失败：" + ex.Message;
+                }
+                finally
+                {
+                    IsBusy = false;
+                    StartAppendCommand.RaiseCanExecuteChanged();
+                }
             }
         }
 

@@ -183,6 +183,26 @@
             </StackPanel>
           </Border>
 
+          <!-- 追加到已有项目（F14-B）：日期不匹配时会被整批拒绝 -->
+          <Border Style="{StaticResource CardBorder}">
+            <StackPanel>
+              <TextBlock Text="追加到已有项目" Style="{StaticResource SectionTitleText}" />
+              <TextBlock Text="{Binding AppendRangeText}" Style="{StaticResource SecondaryText}" />
+              <Grid Margin="0,8,0,0">
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="*" />
+                  <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <ComboBox Grid.Column="0" Margin="0,0,10,0" MinHeight="30"
+                          ItemsSource="{Binding AppendCandidates}"
+                          SelectedItem="{Binding SelectedAppendProject}"
+                          DisplayMemberPath="Name" />
+                <Button Grid.Column="1" Content="追加到该项目" Style="{StaticResource SecondaryButton}"
+                        Command="{Binding StartAppendCommand}" />
+              </Grid>
+            </StackPanel>
+          </Border>
+
           <!-- 素材统计 -->
           <Border Style="{StaticResource CardBorder}">
             <StackPanel>
