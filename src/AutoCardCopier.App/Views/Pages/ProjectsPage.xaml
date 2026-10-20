@@ -29,7 +29,8 @@
         <StackPanel Grid.Column="2" Orientation="Horizontal">
           <Button Content="搜索" Style="{StaticResource PrimaryButton}" Command="{Binding SearchCommand}" Margin="0,0,8,0" />
           <Button Content="清除筛选" Style="{StaticResource SecondaryButton}" Command="{Binding ClearFilterCommand}" Margin="0,0,8,0" />
-          <Button Content="从服务器重建" Style="{StaticResource SecondaryButton}" Command="{Binding RebuildCommand}" />
+          <Button Content="从服务器重建" Style="{StaticResource SecondaryButton}" Command="{Binding RebuildCommand}" Margin="0,0,8,0" />
+                            <Button Content="导入素材目录" Style="{StaticResource PrimaryButton}" Command="{Binding ImportLibraryCommand}" />
         </StackPanel>
       </Grid>
     </Border>

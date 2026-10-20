@@ -35,6 +35,87 @@ namespace AutoCardCopier.App.ViewModels.Pages
     /// </summary>
     public sealed class ProjectsViewModel : PageViewModelBase
     {
+        private RelayCommand _importLibraryCommand;
+
+        /// <summary>
+        /// 导入已有素材目录（F14-A）：选择目录 → 扫描识别 → 确认后入库。
+        /// 懒初始化，避免改动既有构造函数。
+        /// </summary>
+        public RelayCommand ImportLibraryCommand
+        {
+            get { return _importLibraryCommand ?? (_importLibraryCommand = new RelayCommand(ImportLibrary)); }
+        }
+
+        private void ImportLibrary()
+        {
+            string root;
+            try
+            {
+                using (var dialog = new System.Windows.Forms.FolderBrowserDialog())
+                {
+                    dialog.Description = "选择要导入的素材库根目录（已存在的旧素材文件夹）";
+                    dialog.ShowNewFolderButton = false;
+                    if (dialog.ShowDialog() != System.Windows.Forms.DialogResult.OK) { return; }
+                    root = dialog.SelectedPath;
+                }
+            }
+            catch (Exception ex)
+            {
+                StatusText = "选择目录失败：" + ex.Message;
+                return;
+            }
+
+            StatusText = "正在扫描目录，请稍候…";
+            try
+            {
+                System.Collections.Generic.IList<AutoCardCopier.Core.Projects.LibraryCandidate> found =
+                    AutoCardCopier.Core.Projects.LibraryImporter.Scan(root, 3, Services.ProjectLibrary, Services.Logger, false);
+
+                if (found.Count == 0)
+                {
+                    StatusText = "该目录下没有识别到素材项目。";
+                    return;
+                }
+
+                int pending = 0;
+                var summary = new System.Text.StringBuilder();
+                summary.AppendLine("识别到 " + found.Count + " 个项目（已入库的会跳过）：");
+                summary.AppendLine();
+                foreach (AutoCardCopier.Core.Projects.LibraryCandidate item in found)
+                {
+                    if (item.IsImported)
+                    {
+                        summary.AppendLine("· " + item.Name + "　" + item.DisplayRange + "　" + item.TotalCount + " 个文件（已存在，跳过）");
+                        continue;
+                    }
+                    pending++;
+                    summary.AppendLine("· " + item.Name + "　" + item.DisplayRange + "　" + item.TotalCount + " 个文件　" + item.RelativePath);
+                }
+                summary.AppendLine();
+                summary.AppendLine("将导入 " + pending + " 个项目。是否继续？");
+
+                if (pending == 0)
+                {
+                    MessageBox.Show(summary.ToString(), "没有需要导入的项目", MessageBoxButton.OK, MessageBoxImage.Information);
+                    StatusText = "全部项目已存在，无需导入。";
+                    return;
+                }
+
+                MessageBoxResult confirm = MessageBox.Show(summary.ToString(), "确认导入",
+                    MessageBoxButton.OKCancel, MessageBoxImage.Question);
+                if (confirm != MessageBoxResult.OK) { StatusText = "已取消导入。"; return; }
+
+                int imported = AutoCardCopier.Core.Projects.LibraryImporter.Import(found, Services.ProjectLibrary,
+                    Services.Logger, "import");
+                StatusText = string.Format("已导入 {0} 个项目（共识别 {1} 个）。刷新后可在列表中查看。", imported, found.Count);
+            }
+            catch (Exception ex)
+            {
+                Services.Logger.Warn("导入素材目录失败：" + ex.Message);
+                StatusText = "导入失败：" + ex.Message;
+            }
+        }
+
         private string _keyword = string.Empty;
         private string _selectedType = "全部类型";
         private string _statusText = string.Empty;
