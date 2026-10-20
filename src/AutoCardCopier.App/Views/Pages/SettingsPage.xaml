@@ -81,6 +81,24 @@
 
         <Border Style="{StaticResource CardBorder}">
           <StackPanel>
+            <TextBlock Text="素材库数据" Style="{StaticResource SectionTitleText}" />
+            <TextBlock Text="校验清单、拷贝日志与项目记录默认保存在应用数据目录，素材目录保持纯净。"
+                       Style="{StaticResource SecondaryText}" TextWrapping="Wrap" />
+
+            <CheckBox Style="{StaticResource AppCheckBox}" Margin="0,8,0,0"
+                      Content="同时在素材目录写一份自描述文件（默认关闭；开启后每项目会多 3 个文件）"
+                      IsChecked="{Binding WriteSelfDescribingFiles, Mode=TwoWay}" />
+
+            <TextBlock Text="旧版元数据清理" Style="{StaticResource SecondaryText}" Margin="0,12,0,2" />
+            <TextBlock Text="升级前的版本会把 _manifest.json / _project.json / _copy.log 写进每个素材项目目录。这里可以先预览、再二次确认删除，只删这三个文件名，不动任何素材。"
+                       Style="{StaticResource SecondaryText}" TextWrapping="Wrap" />
+            <Button Content="清理旧版元数据…" Style="{StaticResource SecondaryButton}" HorizontalAlignment="Left"
+                    Margin="0,6,0,0" Command="{Binding CleanLegacyMetadataCommand}" />
+          </StackPanel>
+        </Border>
+
+        <Border Style="{StaticResource CardBorder}">
+          <StackPanel>
             <TextBlock Text="界面与数据" Style="{StaticResource SectionTitleText}" />
             <TextBlock Text="主题" Style="{StaticResource SecondaryText}" />
             <ComboBox Style="{StaticResource AppComboBox}" Margin="0,4,0,10" Width="200" HorizontalAlignment="Left"

@@ -25,6 +25,18 @@ namespace AutoCardCopier.Core.Copying
 
         /// <summary>显示名（通常等于项目名）。</summary>
         public string DisplayName { get; set; }
+
+        /// <summary>目录布局（F14-D）：合并放一起 / 一天一个文件夹。</summary>
+        public ProjectLayout Layout { get; set; }
+
+        /// <summary>项目日期范围起始（跨天项目用；为空时按素材实际时间推断）。</summary>
+        public DateTime? RangeStart { get; set; }
+
+        /// <summary>项目日期范围终止（跨天项目用；为空时按素材实际时间推断）。</summary>
+        public DateTime? RangeEnd { get; set; }
+
+        /// <summary>项目来源：create（新建）/ import（历史导入）/ append（追加）。</summary>
+        public string Source { get; set; }
     }
 
     /// <summary>一个执行单元：某个项目写入某个目标。</summary>
@@ -230,7 +242,7 @@ namespace AutoCardCopier.Core.Copying
                         settings == null ? ConflictPolicy.AutoRenameDir : settings.ConflictPolicy, warnings);
 
                     OperationResult<CopyPlan> planResult = _planBuilder.BuildForFiles(
-                        group.Files, sourceRoot, settings, group.Context, root, projectDirectory);
+                        group.Files, sourceRoot, settings, group.Context, root, projectDirectory, group.Layout);
                     if (!planResult.Success)
                     {
                         return OperationResult.Fail<BackupPlanSet>("为 " + group.DisplayName + " 生成计划失败：" + planResult.Message);

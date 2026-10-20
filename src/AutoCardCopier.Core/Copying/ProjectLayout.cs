@@ -1,4 +1,3 @@
-using System.Collections.Generic;
 using System.IO;
 using AutoCardCopier.Core.Scanning;
 
@@ -48,21 +47,37 @@ namespace AutoCardCopier.Core.Copying
         public static void ApplyByDay(CopyPlan plan)
         {
             if (plan == null) { return; }
+            string projectDirectory = (plan.ProjectDirectory ?? string.Empty).TrimEnd(Path.DirectorySeparatorChar);
+
             foreach (CopyItem item in plan.Items)
             {
                 if (item.Source == null || !item.Source.ShootTime.HasValue) { continue; }
 
                 string date = item.Source.ShootTime.Value.ToString("yyyy-MM-dd");
-                string type = Path.GetFileName(Path.GetDirectoryName(item.TargetPath) ?? string.Empty);
-                if (string.IsNullOrEmpty(type)) { type = item.Source.Kind == MediaKind.Video ? "视频" : "照片"; }
+
+                // 类型子目录：只有目标文件原本就在项目目录的下一级子目录里才沿用，
+                // 否则（"不分类"模式，文件直接躺在项目目录下）按素材类型命名，避免把项目名当类型。
+                string type = string.Empty;
+                string fileDirectory = Path.GetDirectoryName(item.TargetPath) ?? string.Empty;
+                if (!string.Equals(fileDirectory.TrimEnd(Path.DirectorySeparatorChar), projectDirectory,
+                        System.StringComparison.OrdinalIgnoreCase))
+                {
+                    type = Path.GetFileName(fileDirectory);
+                }
+                if (string.IsNullOrEmpty(type)) { type = ResolveKindFolder(item.Source.Kind); }
 
                 item.TargetPath = Path.Combine(plan.ProjectDirectory, date, type, Path.GetFileName(item.TargetPath));
             }
-            foreach (string warning in new List<string>())
-            {
-                plan.Warnings.Add(warning);
-            }
+
             plan.Warnings.Add("布局：一天一个文件夹（项目/日期/类型）");
+        }
+
+        /// <summary>按素材类型给出中文子目录名（未知时间/其它类型也不猜，统一归“其他”）。</summary>
+        private static string ResolveKindFolder(MediaKind kind)
+        {
+            if (kind == MediaKind.Video) { return "视频"; }
+            if (kind == MediaKind.Photo) { return "照片"; }
+            return "其他";
         }
     }
 }

@@ -552,6 +552,138 @@ namespace AutoCardCopier.App.ViewModels.Pages
         /// <summary>把统一填写的地点与类型应用到全部分组。</summary>
         public RelayCommand ApplyBulkCommand { get; private set; }
 
+        // ---------- 合并为一个项目（F14-D） ----------
+
+        private bool _mergeMode;
+        private string _mergeProjectName = string.Empty;
+        private string _mergeLocation = string.Empty;
+        private string _mergeShootType = string.Empty;
+        private ProjectLayout _mergeLayout = ProjectLayout.Flat;
+        private DateTime _mergeStartDate = DateTime.Now.Date;
+        private DateTime _mergeEndDate = DateTime.Now.Date;
+        private IList<KeyValuePair<DateTime, string>> _mergeDateOptions =
+            new List<KeyValuePair<DateTime, string>>();
+
+        /// <summary>按天拆分（默认，每天一个项目）。</summary>
+        public bool IsSplitByDayMode
+        {
+            get { return !_mergeMode; }
+            set { if (value) { SetMergeMode(false); } }
+        }
+
+        /// <summary>合并为一个项目（所有天的素材进同一项目）。</summary>
+        public bool IsMergeMode
+        {
+            get { return _mergeMode; }
+            set { if (value) { SetMergeMode(true); } }
+        }
+
+        private void SetMergeMode(bool merge)
+        {
+            if (_mergeMode == merge) { return; }
+            _mergeMode = merge;
+            RaisePropertyChanged("IsMergeMode");
+            RaisePropertyChanged("IsSplitByDayMode");
+            RaisePropertyChanged("ShowMergePanel");
+            RaisePropertyChanged("MergePreviewText");
+        }
+
+        /// <summary>合并模式下显示项目名/日期范围/布局面板。</summary>
+        public bool ShowMergePanel { get { return _mergeMode; } }
+
+        /// <summary>合并后的项目名（可编辑）。</summary>
+        public string MergeProjectName
+        {
+            get { return _mergeProjectName; }
+            set { if (SetProperty(ref _mergeProjectName, value)) { RaisePropertyChanged("MergePreviewText"); } }
+        }
+
+        /// <summary>合并项目的地点。</summary>
+        public string MergeLocation
+        {
+            get { return _mergeLocation; }
+            set { SetProperty(ref _mergeLocation, value); }
+        }
+
+        /// <summary>合并项目的拍摄类型。</summary>
+        public string MergeShootType
+        {
+            get { return _mergeShootType; }
+            set { SetProperty(ref _mergeShootType, value); }
+        }
+
+        /// <summary>合并项目的起始日期（默认取扫描到的最早日期）。</summary>
+        public DateTime MergeStartDate
+        {
+            get { return _mergeStartDate; }
+            set
+            {
+                if (SetProperty(ref _mergeStartDate, value)) { RaisePropertyChanged("MergePreviewText"); }
+            }
+        }
+
+        /// <summary>合并项目的终止日期（默认取扫描到的最晚日期）。</summary>
+        public DateTime MergeEndDate
+        {
+            get { return _mergeEndDate; }
+            set
+            {
+                if (SetProperty(ref _mergeEndDate, value)) { RaisePropertyChanged("MergePreviewText"); }
+            }
+        }
+
+        /// <summary>可选的起止日期（来自卡上实际存在的拍摄日期，避免手填出错）。</summary>
+        public IList<KeyValuePair<DateTime, string>> MergeDateOptions
+        {
+            get { return _mergeDateOptions; }
+            private set { SetProperty(ref _mergeDateOptions, value); }
+        }
+
+        /// <summary>布局一：合并放一起（项目/照片、项目/视频）。</summary>
+        public bool IsFlatLayout
+        {
+            get { return _mergeLayout == ProjectLayout.Flat; }
+            set { if (value) { SetMergeLayout(ProjectLayout.Flat); } }
+        }
+
+        /// <summary>布局二：一天一个文件夹（项目/日期/照片）。</summary>
+        public bool IsByDayLayout
+        {
+            get { return _mergeLayout == ProjectLayout.ByDay; }
+            set { if (value) { SetMergeLayout(ProjectLayout.ByDay); } }
+        }
+
+        private void SetMergeLayout(ProjectLayout layout)
+        {
+            if (_mergeLayout == layout) { return; }
+            _mergeLayout = layout;
+            RaisePropertyChanged("IsFlatLayout");
+            RaisePropertyChanged("IsByDayLayout");
+            RaisePropertyChanged("MergePreviewText");
+        }
+
+        /// <summary>合并项目将要创建的目录预览（含布局提示）。</summary>
+        public string MergePreviewText
+        {
+            get
+            {
+                string root = Services.Settings.PrimaryTargetRoot;
+                if (string.IsNullOrWhiteSpace(root)) { return "尚未设置素材目标目录，请先到设置页填写。"; }
+
+                string name = PathUtil.SanitizeName(_mergeProjectName, 100);
+                if (string.IsNullOrEmpty(name)) { return "请填写项目名"; }
+
+                string relative = string.IsNullOrEmpty(ResolveMergeParent())
+                    ? name
+                    : System.IO.Path.Combine(ResolveMergeParent(), name);
+                string preview = System.IO.Path.Combine(root, relative);
+                return _mergeLayout == ProjectLayout.ByDay
+                    ? preview + System.IO.Path.DirectorySeparatorChar + "日期" +
+                      System.IO.Path.DirectorySeparatorChar + "照片|视频|其他"
+                    : preview + System.IO.Path.DirectorySeparatorChar + "照片|视频|其他";
+            }
+        }
+
         // ---------- 命令 ----------
 
         public RelayCommand RefreshCommand { get; private set; }
@@ -1146,6 +1278,7 @@ namespace AutoCardCopier.App.ViewModels.Pages
                     {
                         // 更新项目记录：文件数与校验时间
                         project.TotalCount = project.TotalCount + result.AddedFiles;
+                        project.Source = "append";
                         project.LastVerifiedAt = TimeUtil.ToIsoUtcPrecise(DateTime.Now);
                         project.UpdatedAt = project.LastVerifiedAt;
                         Services.ProjectLibrary.Save(project);
@@ -1174,6 +1307,7 @@ namespace AutoCardCopier.App.ViewModels.Pages
             if (scan == null || scan.Groups == null || scan.Groups.Count == 0)
             {
                 GroupSummaryText = string.Empty;
+                MergeDateOptions = new List<KeyValuePair<DateTime, string>>();
                 RaisePropertyChanged("HasMultipleGroups");
                 return;
             }
@@ -1199,6 +1333,8 @@ namespace AutoCardCopier.App.ViewModels.Pages
                 Groups.Add(new MediaGroupItemViewModel(group, context,
                     BuildDefaultProjectName(template, context), targetRoot, BuildParentRelative(template, context)));
             }
+
+            InitializeMergeDefaults(scan);
 
             GroupSummaryText = string.Format("检测到 {0}，共 {1} / {2}",
                 MediaDayGrouper.Describe(scan.Groups), Humanize.Count(scan.TotalCount), Humanize.Bytes(scan.TotalBytes));
@@ -1233,6 +1369,135 @@ namespace AutoCardCopier.App.ViewModels.Pages
             StatusText = string.Format("已把地点与类型应用到 {0} 个分组。", Groups.Count);
         }
 
+        // ---------- 合并为一个项目（F14-D） ----------
+
+        /// <summary>
+        /// 扫描后重置合并模式的默认值：日期范围取卡上最早与最晚日期，项目名按命名模板生成。
+        /// 每次重新扫描都回到"按天拆分"，避免上一次的选择被误用到另一张卡。
+        /// </summary>
+        private void InitializeMergeDefaults(ScanResult scan)
+        {
+            var dates = new List<DateTime>();
+            if (scan != null && scan.Groups != null)
+            {
+                foreach (MediaDayGroup group in scan.Groups)
+                {
+                    if (!group.Date.HasValue) { continue; }
+                    DateTime day = group.Date.Value.Date;
+                    if (!dates.Contains(day)) { dates.Add(day); }
+                }
+            }
+            dates.Sort();
+            if (dates.Count == 0) { dates.Add(DateTime.Now.Date); }
+
+            var options = new List<KeyValuePair<DateTime, string>>();
+            foreach (DateTime day in dates)
+            {
+                options.Add(new KeyValuePair<DateTime, string>(day, day.ToString("yyyy-MM-dd")));
+            }
+            MergeDateOptions = options;
+            _mergeStartDate = dates[0];
+            _mergeEndDate = dates[dates.Count - 1];
+            RaisePropertyChanged("MergeStartDate");
+            RaisePropertyChanged("MergeEndDate");
+
+            // 项目名/地点/类型沿用拍摄信息表单，用户仍可在合并面板里单独修改
+            var context = new ProjectContext
+            {
+                ShootDate = _mergeStartDate,
+                ShootType = string.IsNullOrWhiteSpace(ShootType) ? "其他" : ShootType.Trim(),
+                Location = string.IsNullOrWhiteSpace(Location) ? "未标注地点" : Location.Trim()
+            };
+            MergeProjectName = BuildDefaultProjectName(Services.Settings.NameTemplate, context);
+            MergeLocation = context.Location;
+            MergeShootType = context.ShootType;
+
+            // 新一次扫描回到"按天拆分"
+            _mergeMode = false;
+            RaisePropertyChanged("IsMergeMode");
+            RaisePropertyChanged("IsSplitByDayMode");
+            RaisePropertyChanged("ShowMergePanel");
+            RaisePropertyChanged("MergePreviewText");
+        }
+
+        /// <summary>合并项目的父级相对路径（命名模板里的年份等目录），按当前起始日期计算。</summary>
+        private string ResolveMergeParent()
+        {
+            var context = new ProjectContext
+            {
+                ShootDate = _mergeStartDate.Date,
+                ShootType = string.IsNullOrWhiteSpace(_mergeShootType) ? "其他" : _mergeShootType.Trim(),
+                Location = string.IsNullOrWhiteSpace(_mergeLocation) ? "未标注地点" : _mergeLocation.Trim()
+            };
+            return BuildParentRelative(Services.Settings.NameTemplate, context);
+        }
+
+        /// <summary>构造"合并为一个项目"的拷贝请求。</summary>
+        private ProjectGroupRequest BuildMergedRequest(ScanResult scan)
+        {
+            string shootType = string.IsNullOrWhiteSpace(_mergeShootType) ? "其他" : _mergeShootType.Trim();
+            string location = string.IsNullOrWhiteSpace(_mergeLocation) ? "未标注地点" : _mergeLocation.Trim();
+
+            var context = new ProjectContext
+            {
+                ShootDate = _mergeStartDate.Date,
+                ShootType = shootType,
+                Location = location,
+                Photographer = Photographer ?? string.Empty,
+                CameraModel = scan.CameraModel,
+                CardLabel = SelectedCard == null ? string.Empty : SelectedCard.Card.VolumeLabel
+            };
+
+            string name = PathUtil.SanitizeName(_mergeProjectName, 100);
+            string parent = BuildParentRelative(Services.Settings.NameTemplate, context);
+            return new ProjectGroupRequest
+            {
+                Context = context,
+                Files = scan.Files,
+                RelativeDirectory = string.IsNullOrEmpty(parent) ? name : System.IO.Path.Combine(parent, name),
+                DisplayName = name,
+                Layout = _mergeLayout,
+                RangeStart = _mergeStartDate.Date,
+                RangeEnd = _mergeEndDate.Date,
+                Source = "create"
+            };
+        }
+
+        /// <summary>合并模式的校验：项目名不能为空、日期范围必须覆盖本次全部素材。</summary>
+        private string ValidateMergedGroup()
+        {
+            if (string.IsNullOrWhiteSpace(PathUtil.SanitizeName(_mergeProjectName, 100)))
+            {
+                return "合并项目的项目名不能为空。";
+            }
+            if (_mergeEndDate.Date < _mergeStartDate.Date)
+            {
+                return "终止日期不能早于起始日期，请重新选择。";
+            }
+
+            int outside = 0;
+            string sample = null;
+            foreach (ScannedFile file in _scanResult.Files)
+            {
+                if (!file.ShootTime.HasValue) { continue; }
+                DateTime day = file.ShootTime.Value.Date;
+                if (day >= _mergeStartDate.Date && day <= _mergeEndDate.Date) { continue; }
+                outside++;
+                if (sample == null)
+                {
+                    sample = System.IO.Path.GetFileName(file.FullPath) + "（" + day.ToString("yyyy-MM-dd") + "）";
+                }
+            }
+
+            if (outside > 0)
+            {
+                return string.Format(
+                    "有 {0} 个素材的拍摄日期不在 {1} ~ {2} 内（例如 {3}）。请调整日期范围，或改用“按天拆分”。",
+                    outside, _mergeStartDate.ToString("yyyy-MM-dd"), _mergeEndDate.ToString("yyyy-MM-dd"), sample);
+            }
+            return null;
+        }
+
         /// <summary>
         /// 构造拷贝请求：多日时按分组表格生成多个项目；单日时沿用拍摄信息表单，行为与旧版本一致。
         /// </summary>
@@ -1242,6 +1507,13 @@ namespace AutoCardCopier.App.ViewModels.Pages
 
             if (Groups.Count > 1)
             {
+                // 合并为一个项目（F14-D）：所有天的素材进同一项目，日期范围与布局由用户选择
+                if (IsMergeMode)
+                {
+                    requests.Add(BuildMergedRequest(scan));
+                    return requests;
+                }
+
                 foreach (MediaGroupItemViewModel item in Groups)
                 {
                     string name = PathUtil.SanitizeName(item.ProjectName, 100);
@@ -1280,6 +1552,7 @@ namespace AutoCardCopier.App.ViewModels.Pages
         private string ValidateGroups()
         {
             if (Groups.Count <= 1) { return null; }
+            if (IsMergeMode) { return ValidateMergedGroup(); }
 
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (MediaGroupItemViewModel item in Groups)
@@ -1706,7 +1979,9 @@ namespace AutoCardCopier.App.ViewModels.Pages
 
                     var writeResult = Services.ManifestWriter.WriteProjectFiles(
                         eachUnit.Plan, scan, eachUnit.Group.Context, settings,
-                        eachUnit.Copy, eachUnit.Verify, item.Card.Identity, projectId);
+                        eachUnit.Copy, eachUnit.Verify, item.Card.Identity, projectId,
+                        eachUnit.Group.Layout, eachUnit.Group.RangeStart, eachUnit.Group.RangeEnd,
+                        eachUnit.Group.Source);
                     if (!writeResult.Success)
                     {
                         failures.Add("清单写入失败（" + eachUnit.DisplayName + "）：" + writeResult.Message);
@@ -1716,7 +1991,9 @@ namespace AutoCardCopier.App.ViewModels.Pages
                     if (eachUnit.IsPrimaryTarget && savedProjects.Add(eachUnit.ProjectIndex))
                     {
                         ProjectMeta meta = Services.ManifestWriter.BuildProjectMeta(
-                            eachUnit.Plan, scan, eachUnit.Group.Context, eachUnit.Verify, item.Card.Identity, projectId);
+                            eachUnit.Plan, scan, eachUnit.Group.Context, eachUnit.Verify, item.Card.Identity, projectId,
+                            eachUnit.Group.Layout, eachUnit.Group.RangeStart, eachUnit.Group.RangeEnd,
+                            eachUnit.Group.Source);
                         Services.ProjectLibrary.Save(meta);
                     }
                 }
@@ -1815,6 +2092,8 @@ namespace AutoCardCopier.App.ViewModels.Pages
         private bool _minimizeToTray;
         private bool _autoStart;
         private int _logRetentionDays;
+        private bool _writeSelfDescribingFiles;
+        private bool _isCleaningMetadata;
         private string _saveMessage = string.Empty;
 
         public SettingsViewModel(AppServices services)
@@ -1864,10 +2143,13 @@ namespace AutoCardCopier.App.ViewModels.Pages
             _minimizeToTray = settings.MinimizeToTray;
             _autoStart = settings.AutoStart;
             _logRetentionDays = settings.LogRetentionDays;
+            _writeSelfDescribingFiles = settings.WriteSelfDescribingFiles;
 
             SaveCommand = new RelayCommand(Save);
             BrowseTargetCommand = new RelayCommand(BrowseTarget);
             OpenDataFolderCommand = new RelayCommand(OpenDataFolder);
+            CleanLegacyMetadataCommand = new AsyncRelayCommand(
+                CleanLegacyMetadataAsync, delegate { return !_isCleaningMetadata; });
         }
 
         public string PrimaryTargetRoot
@@ -1991,6 +2273,16 @@ namespace AutoCardCopier.App.ViewModels.Pages
         public RelayCommand BrowseTargetCommand { get; private set; }
         public RelayCommand OpenDataFolderCommand { get; private set; }
 
+        /// <summary>清理旧版元数据（F14-C）：预览 → 二次确认 → 只删软件自己的三个文件名。</summary>
+        public AsyncRelayCommand CleanLegacyMetadataCommand { get; private set; }
+
+        /// <summary>是否在素材目录额外写自描述文件（默认关闭，素材目录保持纯净）。</summary>
+        public bool WriteSelfDescribingFiles
+        {
+            get { return _writeSelfDescribingFiles; }
+            set { SetProperty(ref _writeSelfDescribingFiles, value); }
+        }
+
         private void Save()
         {
             AppSettings settings = Services.Settings;
@@ -2009,6 +2301,7 @@ namespace AutoCardCopier.App.ViewModels.Pages
             settings.MinimizeToTray = MinimizeToTray;
             settings.AutoStart = AutoStart;
             settings.LogRetentionDays = LogRetentionDays;
+            settings.WriteSelfDescribingFiles = WriteSelfDescribingFiles;
 
             OperationResult result = Services.SaveSettings();
             SaveMessage = result.Success ? "已保存（" + TimeUtil.Display(DateTime.Now) + "）" : result.Message;
@@ -2034,9 +2327,66 @@ namespace AutoCardCopier.App.ViewModels.Pages
             }
         }
 
-        private void OpenDataFolder()
+        /// <summary>
+        /// 清理旧版元数据（F14-C）：先选目录 → 后台扫描预览 → 弹窗二次确认 → 后台删除。
+        /// 只删除软件自己写过的 _manifest.json / _project.json / _copy.log，不碰其它文件。
+        /// </summary>
+        private async Task CleanLegacyMetadataAsync()
         {
+            string root;
+            using (var dialog = new System.Windows.Forms.FolderBrowserDialog())
+            {
+                dialog.Description = "选择要清理旧版元数据的素材库根目录（只会删除 _manifest.json、_project.json、_copy.log）";
+                dialog.ShowNewFolderButton = false;
+                if (dialog.ShowDialog() != System.Windows.Forms.DialogResult.OK) { return; }
+                root = dialog.SelectedPath;
+            }
+
+            _isCleaningMetadata = true;
+            CleanLegacyMetadataCommand.RaiseCanExecuteChanged();
             try
+            {
+                SaveMessage = "正在扫描旧版元数据…";
+                CleanupReport preview = await Task.Run(delegate { return LegacyMetadataCleaner.Preview(root); });
+                if (preview.Found == 0)
+                {
+                    SaveMessage = "没有发现旧版元数据文件（" + root + "）";
+                    return;
+                }
+
+                string message = string.Format(
+                    "在所选目录下扫描到 {0} 个旧版元数据文件（共 {1} 个目录）。{2}{2}" +
+                    "只会删除以下三个文件名：{2}_manifest.json、_project.json、_copy.log{2}{2}" +
+                    "例如：{2}{3}{2}{2}确定删除吗？此操作不可撤销。",
+                    preview.Found, preview.Directories, Environment.NewLine,
+                    string.Join(Environment.NewLine, preview.Samples));
+
+                MessageBoxResult answer = MessageBox.Show(message, "清理旧版元数据（二次确认）",
+                    MessageBoxButton.OKCancel, MessageBoxImage.Warning, MessageBoxResult.Cancel);
+                if (answer != MessageBoxResult.OK)
+                {
+                    SaveMessage = "已取消清理，未删除任何文件。";
+                    return;
+                }
+
+                SaveMessage = "正在删除旧版元数据…";
+                CleanupReport cleaned = await Task.Run(delegate { return LegacyMetadataCleaner.Clean(root); });
+                SaveMessage = cleaned.Summary +
+                              (cleaned.Failures.Count > 0 ? "；首个失败：" + cleaned.Failures[0] : string.Empty);
+            }
+            catch (Exception ex)
+            {
+                SaveMessage = "清理失败：" + ex.Message;
+            }
+            finally
+            {
+                _isCleaningMetadata = false;
+                CleanLegacyMetadataCommand.RaiseCanExecuteChanged();
+            }
+        }
+
+        private void OpenDataFolder()
+        {            try
             {
                 System.Diagnostics.Process.Start("explorer.exe", "\"" + Services.DataDirectory + "\"");
             }

@@ -142,7 +142,7 @@ namespace AutoCardCopier.Core.Projects
                 SchemaVersion = 1,
                 Id = id,
                 Name = name,
-                ShootDate = TimeUtil.ToIso(context.ShootDate),
+                ShootDate = TimeUtil.DisplayDate(context.ShootDate),
                 Location = context.Location,
                 ShootType = context.ShootType,
                 Photographer = context.Photographer,

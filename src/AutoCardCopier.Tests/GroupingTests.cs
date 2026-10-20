@@ -23,6 +23,12 @@ namespace AutoCardCopier.Tests
 
             yield return Case("F14-B 追加：越界整批拒绝、范围内成功、同名保留两者", AppendRules);
 
+            yield return Case("F14-C 旧元数据清理：只删软件自己的三个文件名", LegacyMetadataCleanup);
+
+            yield return Case("F14-D 跨天项目：日期范围、布局与统计按项目自身记录", MultiDayProjectMeta);
+
+            yield return Case("F14-D 布局二在不分类模式下仍按 日期/类型 分目录", ByDayLayoutWithoutSubFolders);
+
             yield return Case("F13-A 读取 EXIF 原始拍摄时间", () =>
             {
                 using (var temp = new TempDirectory("exif"))
@@ -385,8 +391,108 @@ namespace AutoCardCopier.Tests
             }
         }
 
-        private static ScannedFile NewFile(string name, DateTime? shootTime, long length)
+        /// <summary>F14-C：清理只针对软件自己的三个文件名，且预览阶段不删任何东西。</summary>
+        public static void LegacyMetadataCleanup()
         {
+            using (var root = new TempDirectory("legacy"))
+            {
+                string project = Path.Combine(root.Path, "2025", "婚礼2001");
+                Directory.CreateDirectory(project);
+                FixtureFactory.WriteFile(Path.Combine(project, "_manifest.json"), 32);
+                FixtureFactory.WriteFile(Path.Combine(project, "_project.json"), 32);
+                FixtureFactory.WriteFile(Path.Combine(project, "_copy.log"), 32);
+                FixtureFactory.WriteFile(Path.Combine(project, "IMG_0001.JPG"), 128);
+                FixtureFactory.WriteFile(Path.Combine(project, "notes.json"), 32);   // 用户自己的文件，不得删除
+
+                CleanupReport preview = LegacyMetadataCleaner.Preview(root.Path);
+                Assert.Equal(3, preview.Found);
+                Assert.Equal(0, preview.Deleted);
+                Assert.True(File.Exists(Path.Combine(project, "_project.json")), "预览阶段不得删除任何文件");
+
+                CleanupReport cleaned = LegacyMetadataCleaner.Clean(root.Path);
+                Assert.Equal(3, cleaned.Found);
+                Assert.Equal(3, cleaned.Deleted);
+                Assert.False(File.Exists(Path.Combine(project, "_manifest.json")));
+                Assert.False(File.Exists(Path.Combine(project, "_copy.log")));
+                Assert.True(File.Exists(Path.Combine(project, "IMG_0001.JPG")), "素材文件必须保留");
+                Assert.True(File.Exists(Path.Combine(project, "notes.json")), "用户自己的 JSON 必须保留");
+            }
+        }
+
+        /// <summary>F14-D：跨天项目的起止日期、布局、来源与统计都按项目自身写入。</summary>
+        public static void MultiDayProjectMeta()
+        {
+            using (var data = new TempDirectory("meta"))
+            {
+                var writer = new AutoCardCopier.Core.Copying.ManifestWriter(data.Path, NullLog.Instance);
+                var plan = new CopyPlan
+                {
+                    TargetRoot = @"H:\",
+                    ProjectDirectory = @"H:\2026\旅拍三天",
+                    ProjectRelativePath = @"2026\旅拍三天",
+                    ProjectName = "旅拍三天"
+                };
+                plan.Items.Add(new CopyItem
+                {
+                    Source = NewFile("D1.JPG", new DateTime(2026, 10, 3, 9, 0, 0), 100),
+                    TargetPath = Path.Combine(plan.ProjectDirectory, "D1.JPG"),
+                    Action = CopyAction.Copy
+                });
+                plan.Items.Add(new CopyItem
+                {
+                    Source = NewFile("D2.MP4", new DateTime(2026, 10, 5, 18, 30, 0), 400),
+                    TargetPath = Path.Combine(plan.ProjectDirectory, "D2.MP4"),
+                    Action = CopyAction.Copy
+                });
+
+                ProjectMeta meta = writer.BuildProjectMeta(plan, null,
+                    new ProjectContext { ShootDate = new DateTime(2026, 10, 3) }, null, null, "p-multiday",
+                    ProjectLayout.ByDay, new DateTime(2026, 10, 3), new DateTime(2026, 10, 5), "create");
+
+                Assert.Equal("2026-10-03", meta.StartDate);
+                Assert.Equal("2026-10-05", meta.EndDate);
+                Assert.True(meta.IsMultiDay, "起止日期不同应识别为跨天项目");
+                Assert.Equal("byday", meta.ImportLayout);
+                Assert.Equal("create", meta.Source);
+                // 统计只算本项目自身的两个文件（不能把整张卡的数量写进来）
+                Assert.Equal(1, meta.PhotoCount);
+                Assert.Equal(1, meta.VideoCount);
+                Assert.Equal(2, meta.TotalCount);
+                Assert.Equal(500L, meta.TotalBytes);
+                Assert.Contains("2026-10-05", meta.ShootTimeEnd);
+            }
+        }
+
+        /// <summary>F14-D：子目录设为"不分类"时，按天布局仍应生成 项目/日期/照片。</summary>
+        public static void ByDayLayoutWithoutSubFolders()
+        {
+            using (var target = new TempDirectory("bydaytarget"))
+            using (var card = new TempDirectory("bydaycard"))
+            {
+                string folder = Path.Combine(card.Path, "DCIM", "100CANON");
+                Directory.CreateDirectory(folder);
+                string jpg = Path.Combine(folder, "IMG_0001.JPG");
+                FixtureFactory.WriteFile(jpg, 128);
+                File.SetLastWriteTime(jpg, new DateTime(2026, 10, 3, 10, 0, 0));
+
+                AppSettings settings = AppSettings.CreateDefault();
+                settings.SubFolderMode = SubFolderMode.None;
+                ScanResult scan = new MediaScanner(NullLog.Instance).Scan(card.Path, settings, null, CancellationToken.None);
+
+                var builder = new CopyPlanBuilder(NullLog.Instance);
+                string projectDirectory = Path.Combine(target.Path, "2026", "旅拍三天");
+                OperationResult<CopyPlan> built = builder.BuildForFiles(scan.Files, card.Path, settings,
+                    new ProjectContext { ShootDate = new DateTime(2026, 10, 3) },
+                    target.Path, projectDirectory, ProjectLayout.ByDay);
+
+                Assert.True(built.Success, built.Message);
+                Assert.Equal(1, built.Value.Items.Count);
+                string expected = Path.Combine("2026-10-03", "照片");
+                Assert.Contains(expected, built.Value.Items[0].TargetPath);
+            }
+        }
+
+        private static ScannedFile NewFile(string name, DateTime? shootTime, long length)        {
             return new ScannedFile
             {
                 FullPath = @"C:\card\" + name,

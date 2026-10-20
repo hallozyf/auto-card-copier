@@ -19,7 +19,40 @@ namespace AutoCardCopier.App.ViewModels.Pages
         public ProjectMeta Meta { get; private set; }
 
         public string Name { get { return Meta.Name; } }
-        public string DateText { get { return Meta.ShootDate; } }
+
+        /// <summary>日期展示：跨天项目显示"起 ~ 止"，单日项目显示拍摄日期（F14-D）。</summary>
+        public string DateText
+        {
+            get
+            {
+                if (Meta.IsMultiDay) { return Meta.StartDate + " ~ " + Meta.EndDate; }
+                return Meta.ShootDate;
+            }
+        }
+
+        /// <summary>项目跨度说明。</summary>
+        public string SpanText { get { return Meta.IsMultiDay ? "跨天项目" : "单日项目"; } }
+
+        /// <summary>导入布局说明。</summary>
+        public string LayoutText
+        {
+            get
+            {
+                return string.Equals(Meta.ImportLayout, "byday", StringComparison.OrdinalIgnoreCase)
+                    ? "一天一个文件夹" : "合并放一起";
+            }
+        }
+
+        /// <summary>来源说明（新建 / 历史导入 / 追加）。</summary>
+        public string SourceText
+        {
+            get
+            {
+                if (string.Equals(Meta.Source, "import", StringComparison.OrdinalIgnoreCase)) { return "历史导入"; }
+                if (string.Equals(Meta.Source, "append", StringComparison.OrdinalIgnoreCase)) { return "追加"; }
+                return "新建";
+            }
+        }
         public string LocationText { get { return string.IsNullOrEmpty(Meta.Location) ? "未标注" : Meta.Location; } }
         public string TypeText { get { return string.IsNullOrEmpty(Meta.ShootType) ? "其他" : Meta.ShootType; } }
         public string CountText { get { return Humanize.Count(Meta.TotalCount) + " 个文件"; } }

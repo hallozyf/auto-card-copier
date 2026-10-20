@@ -117,14 +117,16 @@ namespace AutoCardCopier.Core.Copying
         /// </summary>
         public OperationResult WriteProjectFiles(CopyPlan plan, ScanResult scan, ProjectContext context,
             AppSettings settings, CopyResult copyResult, VerifyReport verifyReport,
-            CardIdentity cardIdentity, string projectId)
+            CardIdentity cardIdentity, string projectId, ProjectLayout layout = ProjectLayout.Flat,
+            DateTime? rangeStart = null, DateTime? rangeEnd = null, string source = "create")
         {
             if (plan == null) { return OperationResult.Fail("计划为空"); }
 
             try
             {
                 ManifestModel manifest = BuildManifest(plan, scan, context, settings, copyResult, verifyReport, cardIdentity, projectId);
-                ProjectMeta meta = BuildProjectMeta(plan, scan, context, verifyReport, cardIdentity, projectId);
+                ProjectMeta meta = BuildProjectMeta(plan, scan, context, verifyReport, cardIdentity, projectId,
+                    layout, rangeStart, rangeEnd, source);
 
                 string copyLog = BuildCopyLog(plan, copyResult, verifyReport, cardIdentity);
 
@@ -219,19 +221,64 @@ namespace AutoCardCopier.Core.Copying
 
         /// <summary>构造项目元数据。</summary>
         public ProjectMeta BuildProjectMeta(CopyPlan plan, ScanResult scan, ProjectContext context,
-            VerifyReport verifyReport, CardIdentity cardIdentity, string projectId)
+            VerifyReport verifyReport, CardIdentity cardIdentity, string projectId,
+            ProjectLayout layout = ProjectLayout.Flat, DateTime? rangeStart = null, DateTime? rangeEnd = null,
+            string source = "create")
         {
-            DateTime shootStart = scan != null && scan.EarliestUtc.HasValue ? scan.EarliestUtc.Value.ToLocalTime() : context.ShootDate;
-            DateTime shootEnd = scan != null && scan.LatestUtc.HasValue ? scan.LatestUtc.Value.ToLocalTime() : context.ShootDate;
+            // 统计与时间范围都以"本项目实际包含的文件"为准：
+            // 多日分组时整张卡的统计不能代表某一个项目（F13/F14-D）。
+            int photoCount = 0, videoCount = 0, otherCount = 0;
+            long photoBytes = 0, videoBytes = 0, otherBytes = 0;
+            DateTime? earliest = null, latest = null;
+
+            if (plan != null)
+            {
+                foreach (CopyItem item in plan.Items)
+                {
+                    ScannedFile file = item.Source;
+                    if (file == null) { continue; }
+                    if (file.Kind == MediaKind.Photo) { photoCount++; photoBytes += file.Length; }
+                    else if (file.Kind == MediaKind.Video) { videoCount++; videoBytes += file.Length; }
+                    else { otherCount++; otherBytes += file.Length; }
+
+                    if (file.ShootTime.HasValue)
+                    {
+                        DateTime moment = file.ShootTime.Value;
+                        if (!earliest.HasValue || moment < earliest.Value) { earliest = moment; }
+                        if (!latest.HasValue || moment > latest.Value) { latest = moment; }
+                    }
+                }
+            }
+
+            DateTime fallbackStart = scan != null && scan.EarliestUtc.HasValue
+                ? scan.EarliestUtc.Value.ToLocalTime()
+                : context.ShootDate;
+            DateTime fallbackEnd = scan != null && scan.LatestUtc.HasValue
+                ? scan.LatestUtc.Value.ToLocalTime()
+                : context.ShootDate;
+
+            DateTime rangeStartDate = (rangeStart ?? earliest ?? fallbackStart).Date;
+            DateTime rangeEndDate = (rangeEnd ?? latest ?? fallbackEnd).Date;
+            if (rangeEndDate < rangeStartDate) { rangeEndDate = rangeStartDate; }
+
+            DateTime shootStart = earliest ?? rangeStartDate;
+            DateTime shootEnd = latest ?? rangeEndDate;
 
             return new ProjectMeta
             {
                 SchemaVersion = 1,
                 Id = projectId,
                 Name = plan.ProjectName,
-                ShootDate = TimeUtil.ToIso(shootStart.Date),
+                ShootDate = TimeUtil.DisplayDate(rangeStartDate),
                 ShootTimeStart = TimeUtil.ToIso(shootStart),
                 ShootTimeEnd = TimeUtil.ToIso(shootEnd),
+                StartDate = TimeUtil.DisplayDate(rangeStartDate),
+                EndDate = TimeUtil.DisplayDate(rangeEndDate),
+                Source = string.IsNullOrEmpty(source) ? "create" : source,
+                ImportLayout = layout == ProjectLayout.ByDay ? "byday" : "flat",
+                LastVerifiedAt = verifyReport != null && verifyReport.AllPassed
+                    ? TimeUtil.ToIsoUtcPrecise(DateTime.Now)
+                    : null,
                 Location = context.Location,
                 ShootType = context.ShootType,
                 Photographer = context.Photographer,
@@ -240,14 +287,14 @@ namespace AutoCardCopier.Core.Copying
                 CardFingerprint = cardIdentity == null ? string.Empty : cardIdentity.Fingerprint,
                 TargetPath = plan.ProjectDirectory,
                 RelativePath = plan.ProjectRelativePath,
-                PhotoCount = scan == null ? 0 : scan.PhotoCount,
-                PhotoBytes = scan == null ? 0 : scan.PhotoBytes,
-                VideoCount = scan == null ? 0 : scan.VideoCount,
-                VideoBytes = scan == null ? 0 : scan.VideoBytes,
-                OtherCount = scan == null ? 0 : scan.OtherCount,
-                OtherBytes = scan == null ? 0 : scan.OtherBytes,
-                TotalCount = plan.TotalCount,
-                TotalBytes = plan.TotalBytes,
+                PhotoCount = plan == null ? 0 : photoCount,
+                PhotoBytes = photoBytes,
+                VideoCount = videoCount,
+                VideoBytes = videoBytes,
+                OtherCount = otherCount,
+                OtherBytes = otherBytes,
+                TotalCount = plan == null ? 0 : plan.TotalCount,
+                TotalBytes = plan == null ? 0 : plan.TotalBytes,
                 VerifyLevel = (verifyReport == null ? VerifyLevel.None : verifyReport.Level).ToString(),
                 VerifyStatus = verifyReport == null ? "未校验" : (verifyReport.AllPassed ? "校验通过" : "校验失败"),
                 Note = string.Empty,

@@ -50,11 +50,12 @@
               <DataTemplate>
                 <Grid>
                   <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="110" />
+                    <ColumnDefinition Width="160" />
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
                   </Grid.ColumnDefinitions>
-                  <TextBlock Grid.Column="0" Text="{Binding DateText}" Style="{StaticResource SecondaryText}" VerticalAlignment="Center" />
+                  <TextBlock Grid.Column="0" Text="{Binding DateText}" Style="{StaticResource SecondaryText}"
+                             VerticalAlignment="Center" TextWrapping="Wrap" Margin="0,0,8,0" />
                   <StackPanel Grid.Column="1">
                     <TextBlock Text="{Binding LocationText}" Style="{StaticResource BodyText}" FontWeight="SemiBold" />
                     <TextBlock Style="{StaticResource SecondaryText}">
@@ -81,6 +82,13 @@
               <TextBlock Text="项目详情" Style="{StaticResource SectionTitleText}" />
               <TextBlock Text="{Binding SelectedProject.Name}" Style="{StaticResource BodyText}" FontWeight="SemiBold" />
               <TextBlock Text="{Binding SelectedProject.PathText}" Style="{StaticResource SecondaryText}" Margin="0,4,0,0" />
+              <TextBlock Style="{StaticResource SecondaryText}" Margin="0,4,0,0">
+                <Run Text="{Binding SelectedProject.SpanText, Mode=OneWay}" />
+                <Run Text=" · " />
+                <Run Text="{Binding SelectedProject.LayoutText, Mode=OneWay}" />
+                <Run Text=" · " />
+                <Run Text="{Binding SelectedProject.SourceText, Mode=OneWay}" />
+              </TextBlock>
               <TextBlock Style="{StaticResource SecondaryText}" Margin="0,4,0,0">
                 <Run Text="{Binding SelectedProject.CountText, Mode=OneWay}" />
                 <Run Text=" · " />
