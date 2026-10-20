@@ -111,6 +111,17 @@ namespace AutoCardCopier.Core.Copying
         public OperationResult<CopyPlan> BuildForFiles(IList<ScannedFile> files, string sourceRoot,
             AppSettings settings, ProjectContext context, string targetRoot, string resolvedProjectDirectory)
         {
+            return BuildForFiles(files, sourceRoot, settings, context, targetRoot, resolvedProjectDirectory, ProjectLayout.Flat);
+        }
+
+        /// <summary>
+        /// 带目录布局的计划生成（F14-D）。
+        /// Flat = 合并放一起（项目/照片、项目/视频）；ByDay = 一天一个文件夹（项目/日期/照片）。
+        /// </summary>
+        public OperationResult<CopyPlan> BuildForFiles(IList<ScannedFile> files, string sourceRoot,
+            AppSettings settings, ProjectContext context, string targetRoot, string resolvedProjectDirectory,
+            ProjectLayout layout)
+        {
             if (files == null || files.Count == 0) { return OperationResult.Fail<CopyPlan>("该项目没有素材文件"); }
             if (settings == null) { settings = AppSettings.CreateDefault(); }
             if (context == null) { context = ProjectContext.CreateDefault(); }
@@ -144,6 +155,9 @@ namespace AutoCardCopier.Core.Copying
                     targetPath = EnsureUniqueTarget(targetPath, usedTargets);
                     plan.Items.Add(new CopyItem { Source = file, TargetPath = targetPath, Action = CopyAction.Copy });
                 }
+
+                // "一天一个文件夹"布局：把目标路径改写为 项目/日期/类型（F14-D）
+                if (layout == ProjectLayout.ByDay) { LayoutHelper.ApplyByDay(plan); }
 
                 _log.Info(string.Format("项目计划已生成：{0} 个文件，{1}，目标目录 {2}",
                     plan.TotalCount, Humanize.Bytes(plan.TotalBytes), plan.ProjectDirectory));

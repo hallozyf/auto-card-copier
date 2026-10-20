@@ -21,6 +21,8 @@ namespace AutoCardCopier.Tests
 
             yield return Case("F14-A 历史素材导入：识别最上层目录并入库", ImportLibrary);
 
+            yield return Case("F14-B 追加：越界整批拒绝、范围内成功、同名保留两者", AppendRules);
+
             yield return Case("F13-A 读取 EXIF 原始拍摄时间", () =>
             {
                 using (var temp = new TempDirectory("exif"))
@@ -206,6 +208,88 @@ namespace AutoCardCopier.Tests
                     }
                 }
             });
+        }
+
+        /// <summary>固定冲突策略（测试用）。</summary>
+        private sealed class FixedResolver : IConflictResolver
+        {
+            private readonly ConflictAction _action;
+            public FixedResolver(ConflictAction action) { _action = action; }
+            public ConflictAction Resolve(ConflictContext context) { return _action; }
+        }
+
+        /// <summary>F14-B/F14-D：日期严格校验、同名冲突按决策处理、按天布局。</summary>
+        public static void AppendRules()
+        {
+            using (var target = new TempDirectory("append"))
+            using (var card = new TempDirectory("acard"))
+            {
+                string projectDir = Path.Combine(target.Path, "2026", "婚礼三天");
+                Directory.CreateDirectory(projectDir);
+                FixtureFactory.WriteFile(Path.Combine(projectDir, "IMG_0001.JPG"), 512);
+
+                string folder = Path.Combine(card.Path, "DCIM", "100CANON");
+                Directory.CreateDirectory(folder);
+                string inRange = Path.Combine(folder, "IMG_0001.JPG");   // 与目标同名，内容不同
+                FixtureFactory.WriteFile(inRange, 256);
+                File.SetLastWriteTime(inRange, new DateTime(2026, 10, 4, 10, 0, 0));
+                string outOfRange = Path.Combine(folder, "IMG_0010.JPG");
+                FixtureFactory.WriteFile(outOfRange, 128);
+                File.SetLastWriteTime(outOfRange, new DateTime(2026, 10, 20, 10, 0, 0));
+
+                AppSettings settings = AppSettings.CreateDefault();
+                ScanResult scan = new MediaScanner(NullLog.Instance).Scan(card.Path, settings, null, CancellationToken.None);
+                var project = new ProjectMeta
+                {
+                    Id = "p-append",
+                    Name = "婚礼三天",
+                    ShootDate = "2026-10-03",
+                    StartDate = "2026-10-03",
+                    EndDate = "2026-10-05",
+                    TargetPath = projectDir
+                };
+                var service = new AppendService(new CopyPlanBuilder(NullLog.Instance), new CopyEngine(NullLog.Instance), NullLog.Instance);
+                var keepBoth = new FixedResolver(ConflictAction.KeepBoth);
+
+                // 1) 含越界文件 → 整批拒绝，且不写入任何文件
+                AppendResult rejected = service.RunAsync(
+                    new AppendRequest { Project = project, Files = scan.Files, Layout = ProjectLayout.Flat },
+                    settings, keepBoth, null, new PauseToken(), CancellationToken.None).GetAwaiter().GetResult();
+                Assert.False(rejected.Success);
+                Assert.Equal(1, rejected.OutOfRangeFiles.Count);
+                Assert.False(File.Exists(Path.Combine(projectDir, "IMG_0010.JPG")), "越界文件不得被写入");
+
+                // 2) 只追加范围内的文件；同名 → 保留两者，新文件加序号
+                var only = new List<ScannedFile>();
+                foreach (ScannedFile file in scan.Files) { if (file.FullPath == inRange) { only.Add(file); } }
+                AppendResult appended = service.RunAsync(
+                    new AppendRequest { Project = project, Files = only, Layout = ProjectLayout.Flat },
+                    settings, keepBoth, null, new PauseToken(), CancellationToken.None).GetAwaiter().GetResult();
+                Assert.True(appended.Success, appended.Message);
+                Assert.Equal(1, appended.AddedFiles);
+                // 素材按既定规则落在类型子目录（照片/）下，因此递归查找
+                string[] sameName = Directory.GetFiles(projectDir, "IMG_0001*", SearchOption.AllDirectories);
+                Assert.True(sameName.Length >= 2, "保留两者时应保留两份 IMG_0001* 文件");
+                Assert.True(File.Exists(Path.Combine(projectDir, "IMG_0001.JPG")), "原有文件必须保留");
+
+                // 3) 按天布局：项目/日期/照片
+                var byDayProject = new ProjectMeta
+                {
+                    Id = "p-day",
+                    Name = "旅拍",
+                    ShootDate = "2026-10-03",
+                    StartDate = "2026-10-03",
+                    EndDate = "2026-10-05",
+                    TargetPath = Path.Combine(target.Path, "2026", "旅拍")
+                };
+                Directory.CreateDirectory(byDayProject.TargetPath);
+                AppendResult byDay = service.RunAsync(
+                    new AppendRequest { Project = byDayProject, Files = only, Layout = ProjectLayout.ByDay },
+                    settings, keepBoth, null, new PauseToken(), CancellationToken.None).GetAwaiter().GetResult();
+                Assert.True(byDay.Success, byDay.Message);
+                Assert.True(Directory.Exists(Path.Combine(byDayProject.TargetPath, "2026-10-04")),
+                    "按天布局应生成日期目录");
+            }
         }
 
         /// <summary>F14-A：以"包含素材的最上层目录"为一个项目，可入库且不重复导入。</summary>
