@@ -20,6 +20,7 @@
 | 许可证 | MIT（`LICENSE`） |
 | 仓库描述 | 给摄影师用的 Windows 拷卡助手：插入存储卡自动拷贝到文件服务器并校验，按拍摄时间/地点/类型做项目管理；C# + WPF，零第三方依赖，103 个自动化用例 |
 | 话题标签 | photography, wpf, dotnet-framework, memory-card, backup, file-copy, csharp, windows-desktop |
+| GitHub Release | [v0.5.0](https://github.com/hallozyf/auto-card-copier/releases/tag/v0.5.0)（含版本说明，**未附二进制**，需从源码构建） |
 | 起始版本 | v0.5.0（F14 素材库管理已完成，103 个自动化用例通过） |
 
 ---
@@ -81,9 +82,17 @@ tools\git\cmd\git.exe remote add origin https://github.com/hallozyf/auto-card-co
 
 ### 3.4 发布后校验（API 读回）
 
-- `GET /repos/hallozyf/auto-card-copier` → `private=false`、`default_branch=main`、描述与话题正确；
-- `GET /repos/.../commits?per_page=100` → 29 条，HEAD = 发布准备的最新提交；
-- `GET /repos/.../tags` → 7 个标签齐全。
+- `GET /repos/hallozyf/auto-card-copier` → `private=false`、`default_branch=main`、`license=MIT`、描述与话题正确；
+- `GET /repos/.../commits?per_page=100` → 提交数正确，HEAD 为发布准备的最新提交；
+- `GET /repos/.../tags` → 7 个标签齐全；
+- `GET /repos/.../readme` → 中文内容完整（解码后校验标题与 AI 开发声明段落）。
+
+### 3.5 建立首个 Release
+
+`POST /repos/hallozyf/auto-card-copier/releases`，`tag_name=v0.5.0`，正文包含本版内容（F14）、运行方式、
+文档链接与 AI 开发声明。结果：<https://github.com/hallozyf/auto-card-copier/releases/tag/v0.5.0>。
+
+> 本 Release **没有附件**：绿色版需要本机 MSBuild 构建，因此只发布源码。
 
 ---
 
@@ -100,6 +109,13 @@ tools\git\cmd\git.exe remote add origin https://github.com/hallozyf/auto-card-co
 | `api.github.com` 偶发"连接已建立但返回空响应" | 代理对 HTTPS 隧道的偶发掐断（实测约 1/4 概率） | 客户端**重试**（1.5s 起递增，最多 8 次）即可稳定 |
 
 > 换一台网络正常的电脑时，上面 4 条都不需要，直接 `git push` 即可。
+>
+> **注意**：`http.sslCAInfo` 指向 `%TEMP%\acc-ca-bundle.crt`。若临时目录被清理，推送会报
+> `error adding trust anchors from file`，重新执行一次即可：
+> `Copy-Item tools\git\ucrt64\etc\ssl\certs\ca-bundle.crt $env:TEMP\acc-ca-bundle.crt -Force`。
+>
+> 本机还保留了一份调用 GitHub API 的小工具 `_tmp\github-api.py`（已 gitignore，不入库），
+> 支持 `whoami / create / repo / topics / commits / tags` 等动作，内置了同样的重试逻辑。
 
 ---
 
@@ -125,7 +141,7 @@ tools\git\cmd\git.exe push origin --tags
 
 1. 改 `CHANGELOG.md` + 写好 `docs/` 开发说明；
 2. 打标签 `vX.Y.Z`；
-3. 在 GitHub 上新建 Release：标题用版本号，说明直接引用 CHANGELOG 对应段落；
+3. 在 GitHub 上新建 Release（v0.5.0 已按此建立）：标题用版本号，说明直接引用 CHANGELOG 对应段落；
 4. （可选）把 `build/out/Release` 里的绿色版打成一个 zip 作为 Release 附件，
    注意只打包 `AutoCardCopier.App.exe` + `AutoCardCopier.Core.dll`，**不要**打包 `data/`。
 
@@ -133,9 +149,9 @@ tools\git\cmd\git.exe push origin --tags
 
 ## 7. 本期未做（可继续推进）
 
+- **Release 附带二进制**：当前 Release 只有说明，用户需自行构建（打包上传待做）；
 - **GitHub Actions CI**：Windows runner 上跑 `build\test.cmd Release`（需要 VS BuildTools，成本较高，未做）；
 - **Issue / PR 模板**、`CONTRIBUTING.md` 独立成文；
-- **Release 附带二进制**（当前仓库只有源码，用户需自行构建）；
 - **英文 README**（目前只有英文简介段）；
 - 仓库 `size` 字段需等 GitHub 后台统计，稍后刷新即可看到实际大小。
 
