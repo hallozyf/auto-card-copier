@@ -74,17 +74,20 @@
 | 路径 | 说明 |
 |------|------|
 | AGENT.md / README.md / CHANGELOG.md | 上下文速查、项目说明、变更记录 |
+| LICENSE / .editorconfig / .gitignore | MIT 许可证、编辑器约定（`.ps1` 强制 UTF-8 BOM）、忽略规则 |
 | docs/01-需求文档.md | 功能、目的、效果与验收标准（F01–F16） |
 | docs/02-技术文档.md | 技术选型、架构、数据、实现路径、测试用例、缺陷预防 |
 | docs/03-开发步骤清单.md | 里程碑与逐步执行清单 |
 | docs/04-开发说明模板.md | 开发说明模板 |
 | docs/05-使用手册.md | 面向用户的操作说明与常见问题 |
 | docs/06-开发说明-v0.1.md | 本次开发的完整记录（含遗留问题 L1–L8） |
+| docs/17-项目结构书.md | 分层、线程模型、数据格式、需求映射的全景说明（接手先读） |
+| docs/20-开源发布说明-GitHub.md | 开源发布过程、内容清理、本机网络适配、后续推送方式 |
 | build/ | Common.props、build.ps1、run-tests.ps1、build.cmd、test.cmd |
 | src/AutoCardCopier.Core | 领域逻辑（无 UI 依赖，可单测） |
 | src/AutoCardCopier.App | WPF 界面与视图模型 |
 | src/AutoCardCopier.Tests | 控制台测试运行器 |
-| build/out/Release | 绿色版产物（约 270 KB） |
+| build/out/Release | 绿色版产物（已 gitignore） |
 | tools/git | 便携 Git（已 gitignore） |
 
 ## 6. 关键设计决策（已定，改动需记录原因）
@@ -121,6 +124,7 @@
 | F12 精确断点续传 | 完成（v0.3.0 重写） | 计划文件 + 启动检测 + “继续上次任务”，路径与 F11 共用同一套后台化流程 |
 | F13 多日自动分组 | 完成（v0.4.0） | EXIF/容器时间提取、按自然日分组、批量命名、多项目并行拷贝 |
 | F14 素材库管理 | 完成（v0.5.0） | 历史导入、同日期追加（冲突三选一）、元数据外置与旧文件清理、跨天项目两种布局 |
+| **开源发布** | **完成（2026-10-22）** | **已发布到 GitHub：<https://github.com/hallozyf/auto-card-copier>（Public，MIT，默认分支 main，含 v0.1.0–v0.5.0 共 7 个标签）；发布过程与网络适配见 docs/20** |
 | 当前版本 | v0.5.0 | F14 全部完成（含界面入口）；**待用户真机验证**（见 docs/19 第 7 章） |
 
 ## 8. 常用命令
@@ -139,7 +143,19 @@ build\out\Release\AutoCardCopier.App.exe
 tools\git\cmd\git.exe status
 tools\git\cmd\git.exe add -A
 tools\git\cmd\git.exe commit -m "feat(mx): 说明"
+
+# 推送到 GitHub（origin 已配置为 https://github.com/hallozyf/auto-card-copier.git）
+# 注意：本机需代理 + OpenSSL 后端 + 临时 CA 路径，令牌走 GIT_ASKPASS，详见 docs/20 第 4 章
+tools\git\cmd\git.exe push origin main
+tools\git\cmd\git.exe push origin --tags
 ```
+
+### 开源仓库注意事项
+
+1. **`token.txt`（GitHub 访问令牌）已加入 `.gitignore`，永远不要提交**；用完后到设置页撤销；
+2. `tools/git/`、`build/out/`、`data/`、`logs/`、`.workbuddy/` 均不入库；
+3. 提交历史作者为 `AutoCardCopier Dev <dev@localhost>`，不含个人邮箱；
+4. `.git/config` 里的 `http.proxy` / `http.sslBackend` / `http.sslCAInfo` 是**本机网络适配**，不随仓库发布。
 
 ## 9. 上下文压缩检查点
 
@@ -151,4 +167,4 @@ tools\git\cmd\git.exe commit -m "feat(mx): 说明"
 
 ---
 
-（最后更新：M7 收尾，v0.1.0）
+（最后更新：v0.5.0 · F14 完成并开源发布到 GitHub，2026-10-22）

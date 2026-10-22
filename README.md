@@ -11,6 +11,8 @@
 > 🤖 **本项目由 AI 编程 Agent「DeepSeek Harness」全栈开发**，人类作者负责需求、评审与验收。
 > 接手前请读下文「关于本项目：由 AI Agent 全栈开发」一节。
 
+**仓库地址**：<https://github.com/hallozyf/auto-card-copier>　｜　**许可证**：[MIT](LICENSE)　｜　**当前版本**：v0.5.0
+
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-blue.svg)](#技术栈)
 [![.NET Framework](https://img.shields.io/badge/.NET%20Framework-4.8-512bd4.svg)](#技术栈)
@@ -58,6 +60,8 @@ build\test.cmd Release
 | docs/10、11 | F11 多目标备份与 F12 精确断点续传（需求 / 技术） |
 | docs/14、15、16 | F13 多日素材自动分组（需求 / 技术 / 开发说明） |
 | docs/17、18、19 | F14 素材库管理（需求 / 技术 / 开发说明） |
+| docs/17-项目结构书.md | 分层、线程模型、数据格式与需求映射（接手先读） |
+| docs/20-开源发布说明-GitHub.md | 开源发布过程、内容清理、本机网络适配、后续推送方式 |
 | docs/12 | BUG-002 排故报告（点击拷贝挂起：根因与重写方案） |
 | AGENT.md | 核心上下文速查（维护者与 AI 助手必读） |
 
