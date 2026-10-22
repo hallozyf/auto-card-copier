@@ -3,6 +3,15 @@
 给摄影师用的 Windows 桌面软件：**插入内存卡 → 自动拷贝到文件服务器 → 自动校验 → 可选安全格式化**，
 并按"拍摄时间 + 地点 + 拍摄类型"对每次拍摄做项目化管理。
 
+> A lightweight Windows desktop app for photographers: plug in a memory card, get material copied to
+> your file server with folder auto-creation, integrity verification, project management by shoot date /
+> location / type, and an optional guarded card format. C# + WPF on .NET Framework 4.8, **zero third-party
+> dependencies**. Documentation is in Chinese.
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-blue.svg)](#技术栈)
+[![.NET Framework](https://img.shields.io/badge/.NET%20Framework-4.8-512bd4.svg)](#技术栈)
+
 ## 特性一览
 
 - 插卡自动识别（兼容被 Windows 识别为"固定磁盘"的 CFexpress / XQD 读卡器）
@@ -64,3 +73,34 @@ build\test.cmd Release
 v0.5.0：识别 → 扫描 → 分组 → 拷贝 → 校验 → 清单 → 项目库 → 历史 → 格式化 全流程可用，
 并已具备多目标备份、精确断点续传、多日自动分组、素材库导入/追加/跨天项目。
 待真人验证项见 docs/19-开发说明-素材库管理-F14-v0.5.0.md 第 7 章。
+
+## 仓库结构
+
+```
+build/                   构建与测试脚本（MSBuild，无 SDK 依赖）
+docs/                    需求、技术、排故、开发说明、使用手册、项目结构书
+src/AutoCardCopier.Core  领域逻辑（无 UI 依赖，可单测）
+src/AutoCardCopier.App   WPF 界面与视图模型
+src/AutoCardCopier.Tests 自研控制台测试运行器（103 个用例）
+```
+
+更细的分层、线程模型与数据格式见 [docs/17-项目结构书.md](docs/17-项目结构书.md)。
+
+## 参与贡献
+
+- 提交前请先读 [AGENT.md](AGENT.md) 与 [docs/00-开发流程与评审门禁.md](docs/00-开发流程与评审门禁.md)：
+  本项目坚持**先需求文档 → 技术文档 → 评审通过 → 再写代码**；
+- 构建与测试必须保持 `0 警告 0 错误`，且 `build\test.cmd Release` 全部用例通过；
+- PowerShell 脚本必须存为 **UTF-8 带 BOM**（Windows PowerShell 5.1 要求），`.cmd` 内不要写中文注释；
+- 界面线程不允许做磁盘/网络 I/O（BUG-002 的根因），耗时操作一律放后台线程。
+
+## 安全与免责
+
+- 本软件会**格式化存储卡**（默认关闭，需人工确认，并有六道硬护栏），请务必先用无关紧要的卡验证；
+- 拷贝校验只是"尽量保证一致"，不作为唯一的数据安全手段，重要素材请双备份；
+- 仓库中不含任何用户数据、密钥或真实素材库路径，示例路径均为演示用途。
+
+## 许可证
+
+本项目使用 [MIT License](LICENSE)。
+

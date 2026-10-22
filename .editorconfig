@@ -1,0 +1,22 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = crlf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+
+# PowerShell 脚本必须是 UTF-8 带 BOM，否则 Windows PowerShell 5.1 会把中文读成乱码
+[*.ps1]
+charset = utf-8-bom
+
+[*.{cmd,bat}]
+indent_style = none
+
+[*.{xaml,csproj,props,sln}]
+indent_size = 2
+
+[*.md]
+trim_trailing_whitespace = false
