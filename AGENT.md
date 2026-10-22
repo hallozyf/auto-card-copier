@@ -124,7 +124,7 @@
 | F12 精确断点续传 | 完成（v0.3.0 重写） | 计划文件 + 启动检测 + “继续上次任务”，路径与 F11 共用同一套后台化流程 |
 | F13 多日自动分组 | 完成（v0.4.0） | EXIF/容器时间提取、按自然日分组、批量命名、多项目并行拷贝 |
 | F14 素材库管理 | 完成（v0.5.0） | 历史导入、同日期追加（冲突三选一）、元数据外置与旧文件清理、跨天项目两种布局 |
-| **开源发布** | **完成（2026-10-22）** | **已发布到 GitHub：<https://github.com/hallozyf/auto-card-copier>（Public，MIT，默认分支 main，含 v0.1.0–v0.5.0 共 7 个标签）；发布过程与网络适配见 docs/20** |
+| **开源发布** | **完成（2026-10-22）** | **已发布到 GitHub：<https://github.com/hallozyf/auto-card-copier>（Public，MIT，默认分支 main，含 v0.1.0–v0.5.0 共 7 个标签，首个 Release：[v0.5.0](https://github.com/hallozyf/auto-card-copier/releases/tag/v0.5.0)）；发布过程与网络适配见 docs/20** |
 | 当前版本 | v0.5.0 | F14 全部完成（含界面入口）；**待用户真机验证**（见 docs/19 第 7 章） |
 
 ## 8. 常用命令
